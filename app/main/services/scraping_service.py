@@ -19,37 +19,64 @@ class ScrapingService:
         self.config = current_app.config
         self.selectors = self._load_selectors()
         self.session = requests.Session()
+        self.instance_path = current_app.instance_path
         
+    def _is_cancelled(self, job_id):
+        """ジョブがキャンセルされたかどうかをファイルシステムのシグナルでチェックする"""
+        cancel_file = os.path.join(self.instance_path, f"{job_id}.cancel")
+        return os.path.exists(cancel_file)
+
     def _load_selectors(self):
         """selectors.jsonを読み込む"""
         with open('selectors.json', 'r', encoding='utf-8') as f:
             return json.load(f)
 
-    def _make_request(self, url):
-        """信頼性を高めたHTTP GETリクエストを送信する"""
+    def _make_request(self, url, job_id):
+        """信頼性を高めたHTTP GETリクエストを送信する (キャンセル対応)"""
         for i in range(self.config['RETRY_COUNT']):
+            if self._is_cancelled(job_id):
+                current_app.logger.info(f"Request cancelled for {url} before attempt {i+1}")
+                return None
+
             try:
-                time.sleep(self.config['REQUEST_WAIT_SECONDS'])
-                response = self.session.get(url, timeout=20)
+                # 応答性を高めるためタイムアウトを短縮
+                response = self.session.get(url, timeout=10)
                 response.raise_for_status()
                 return response
             except requests.exceptions.RequestException as e:
                 current_app.logger.warning(f"Request failed for {url} (attempt {i+1}/{self.config['RETRY_COUNT']}): {e}")
+
+            # スリープ前にもキャンセルをチェック
+            if self._is_cancelled(job_id):
+                current_app.logger.info(f"Request cancelled for {url} after failed attempt {i+1}")
+                return None
+            time.sleep(self.config['REQUEST_WAIT_SECONDS'])
+
         current_app.logger.error(f"Request failed for {url} after {self.config['RETRY_COUNT']} attempts.")
         return None
 
-    def run_scraping(self, area_id):
+    def run_scraping(self, area_id, job_id):
         """
         スクレイピング処理全体を統括し、進捗をyieldするジェネレータ。
         """
         try:
             area_info = self._get_area_info(area_id)
+            if self._is_cancelled(job_id):
+                yield f"event: cancelled\ndata: 処理がユーザーによって中断されました。\n\n"
+                return
             yield f"event: message\ndata: 「{area_info['name']}」のスクレイピングを開始します。\n\n"
 
-            total_pages, final_area_url = self._get_total_pages(area_info['url'])
+            total_pages, final_area_url = self._get_total_pages(area_info['url'], job_id)
+            if self._is_cancelled(job_id) or total_pages is None:
+                yield f"event: cancelled\ndata: 処理がユーザーによって中断されました。\n\n"
+                return
+            
             yield f"event: message\ndata: 総ページ数を特定しました: {total_pages}ページ。一覧からURLを収集中...\n\n"
 
-            salon_urls = yield from self._get_all_salon_urls(final_area_url, total_pages)
+            salon_urls = yield from self._get_all_salon_urls(final_area_url, total_pages, job_id)
+            if self._is_cancelled(job_id):
+                yield f"event: cancelled\ndata: 処理がユーザーによって中断されました。\n\n"
+                return
             
             yield f"event: message\ndata: {len(salon_urls)}件のユニークなサロンURLを収集しました。詳細情報の取得を開始します。\n\n"
 
@@ -58,8 +85,13 @@ class ScrapingService:
                 if not salon_urls:
                     yield f"event: message\ndata: 対象エリアにサロンが見つかりませんでした。\n\n"
                 
-                future_to_url = {executor.submit(self._scrape_salon_details, url): url for url in salon_urls}
+                future_to_url = {executor.submit(self._scrape_salon_details, url, job_id): url for url in salon_urls}
                 for i, future in enumerate(as_completed(future_to_url), 1):
+                    if self._is_cancelled(job_id):
+                        executor.shutdown(wait=False, cancel_futures=True)
+                        yield f"event: cancelled\ndata: 処理がユーザーによって中断されました。\n\n"
+                        break
+                    
                     try:
                         result = future.result()
                         if result:
@@ -69,6 +101,10 @@ class ScrapingService:
                         url = future_to_url[future]
                         current_app.logger.error(f'{url} generated an exception: {exc}')
                         yield f"event: message\ndata: エラー発生: {url} の処理中に問題がありました。\n\n"
+
+            if self._is_cancelled(job_id):
+                yield f"event: cancelled\ndata: 処理がユーザーによって中断されました。\n\n"
+                return
 
             yield f"event: message\ndata: {len(salon_details)}件の詳細情報を取得しました。Excelファイルを生成します。\n\n"
             
@@ -92,10 +128,10 @@ class ScrapingService:
             raise ValueError(f"Area with ID {area_id} not found.")
         return {'name': area['name'], 'url': area['url']}
 
-    def _get_total_pages(self, area_url):
-        response = self._make_request(area_url)
+    def _get_total_pages(self, area_url, job_id):
+        response = self._make_request(area_url, job_id)
         if not response:
-            return 1, area_url
+            return None, None
 
         final_url = response.url
         soup = BeautifulSoup(response.text, 'html.parser')
@@ -121,7 +157,7 @@ class ScrapingService:
         
         return total_pages, final_url
 
-    def _get_all_salon_urls(self, area_url, total_pages):
+    def _get_all_salon_urls(self, area_url, total_pages, job_id):
         all_urls = set()
         page_urls = []
 
@@ -139,8 +175,13 @@ class ScrapingService:
             if not page_urls:
                 return []
             
-            future_to_url = {executor.submit(self._get_salon_urls_from_page, url): url for url in page_urls}
+            future_to_url = {executor.submit(self._get_salon_urls_from_page, url, job_id): url for url in page_urls}
             for i, future in enumerate(as_completed(future_to_url), 1):
+                if self._is_cancelled(job_id):
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    yield f"event: cancelled\ndata: 処理がユーザーによって中断されました。\n\n"
+                    break
+
                 yield f"event: url_progress\ndata: {json.dumps({'current': i, 'total': total_pages})}\n\n"
                 try:
                     urls_from_page = future.result()
@@ -151,10 +192,10 @@ class ScrapingService:
         
         return list(all_urls)
 
-    def _get_salon_urls_from_page(self, page_url):
+    def _get_salon_urls_from_page(self, page_url, job_id):
         """1つの一覧ページからサロンURLをすべて取得する"""
         urls_on_page = set()
-        response = self._make_request(page_url)
+        response = self._make_request(page_url, job_id)
         if not response:
             return urls_on_page
         
@@ -166,8 +207,8 @@ class ScrapingService:
                 urls_on_page.add(full_url)
         return urls_on_page
 
-    def _scrape_salon_details(self, salon_url):
-        response = self._make_request(salon_url)
+    def _scrape_salon_details(self, salon_url, job_id):
+        response = self._make_request(salon_url, job_id)
         if not response: return None
         soup = BeautifulSoup(response.text, 'html.parser')
 
@@ -179,7 +220,7 @@ class ScrapingService:
         phone_number = ''
         if phone_page_link and 'href' in phone_page_link.attrs:
             phone_page_url = requests.compat.urljoin(salon_url, phone_page_link['href'])
-            phone_number = self._scrape_phone_number(phone_page_url)
+            phone_number = self._scrape_phone_number(phone_page_url, job_id)
 
         related_links_elements = soup.select(self.selectors['salon_detail']['related_links'])
         related_links = [link['href'] for link in related_links_elements if 'href' in link.attrs]
@@ -194,8 +235,8 @@ class ScrapingService:
             'サロンURL': salon_url,
         }
 
-    def _scrape_phone_number(self, phone_page_url):
-        response = self._make_request(phone_page_url)
+    def _scrape_phone_number(self, phone_page_url, job_id):
+        response = self._make_request(phone_page_url, job_id)
         if not response: return ''
         soup = BeautifulSoup(response.text, 'html.parser')
         phone_element = soup.select_one(self.selectors['phone_page']['phone_number'])

@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Custom select-box logic
     const customSelectContainer = document.getElementById('custom-select-container');
+    const formCard = customSelectContainer.closest('.card'); // Get the parent card for z-index control
     const searchInput = document.getElementById('area-search-input');
     const selectedAreaIdInput = document.getElementById('selected-area-id');
     const optionsList = document.getElementById('area-options-list');
@@ -12,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     searchInput.addEventListener('focus', () => {
         optionsList.style.display = 'block';
+        formCard.style.zIndex = 10; // Elevate form card
         filterOptions(''); // Show all options on focus
     });
 
@@ -32,6 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
         option.addEventListener('click', () => {
             selectOption(option);
             optionsList.style.display = 'none';
+            formCard.style.zIndex = 'auto'; // Reset z-index
         });
     });
 
@@ -49,6 +52,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('click', (e) => {
         if (!customSelectContainer.contains(e.target)) {
             optionsList.style.display = 'none';
+            formCard.style.zIndex = 'auto'; // Reset z-index
         }
     });
 
@@ -58,7 +62,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusDetails = document.getElementById('status-details');
     const progressBar = document.getElementById('progress-bar');
     const resultCard = document.getElementById('result-card');
+    const cancelButton = document.getElementById('cancel-button');
     let eventSource = null;
+    let currentJobId = null;
 
     scrapeForm.addEventListener('submit', (event) => {
         event.preventDefault();
@@ -83,10 +89,16 @@ document.addEventListener('DOMContentLoaded', () => {
         progressBar.style.width = '0%';
         resultCard.style.display = 'none';
         resultCard.innerHTML = '';
+        cancelButton.style.display = 'block';
+        cancelButton.disabled = false;
 
         const areaId = selectedAreaIdInput.value;
         
         eventSource = new EventSource(`/scrape?area_id=${areaId}`);
+
+        eventSource.addEventListener('job_id', (e) => {
+            currentJobId = e.data;
+        });
 
         eventSource.onopen = () => {
             statusTitle.textContent = '処理開始';
@@ -123,10 +135,23 @@ document.addEventListener('DOMContentLoaded', () => {
             resetUI();
         });
 
+        eventSource.addEventListener('cancelled', (e) => {
+            statusCard.style.display = 'none';
+            showResultCard(false, '処理が中断されました', e.data, null, null);
+            resetUI();
+        });
+
         eventSource.onerror = (e) => {
+            // キャンセル処理中に発生した接続エラーは、専用ハンドラに任せるため無視する
+            if (currentJobId && cancelButton.disabled) {
+                console.log("SSE connection error during cancellation, likely expected. The 'cancelled' event handler will manage the UI.");
+                // エラー表示の前に、念のため接続を閉じておく
+                if(eventSource) eventSource.close();
+                return;
+            }
+
             let errorMessage = 'サーバーとの接続で予期せぬエラーが発生しました。';
-            // 詳細なエラーメッセージの取得を試みる (ただし通常は限定的)
-             try {
+            try {
                 if (e.data) {
                     const errorData = JSON.parse(e.data);
                     if (errorData.error) {
@@ -139,6 +164,24 @@ document.addEventListener('DOMContentLoaded', () => {
             showResultCard(false, 'エラーが発生しました', errorMessage, null, null);
             resetUI();
         };
+    });
+
+    cancelButton.addEventListener('click', () => {
+        if (!currentJobId) return;
+
+        cancelButton.disabled = true;
+        statusTitle.textContent = '中断処理中';
+        statusDetails.textContent = 'サーバーにキャンセルを要求しました...';
+
+        fetch('/scrape/cancel', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ job_id: currentJobId }),
+        })
+        .catch(err => {
+            statusDetails.textContent = 'キャンセルリクエスト中にエラーが発生しました。';
+            cancelButton.disabled = false; // Re-enable if fetch fails
+        });
     });
 
     function showResultCard(isSuccess, title, message, fileName, previewData) {
@@ -191,5 +234,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if(eventSource) eventSource.close();
         runButton.disabled = false;
         runButton.classList.remove('loading');
+        cancelButton.style.display = 'none';
+        currentJobId = null;
     }
 }); 

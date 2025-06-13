@@ -66,6 +66,7 @@ body {
 }
 
 .card {
+    position: relative;
     background-color: var(--card-color);
     border-radius: var(--border-radius);
     padding: 30px;
@@ -349,6 +350,30 @@ body {
 #result-card .download-link:hover {
     background-color: var(--primary-hover-color);
     transform: translateY(-2px);
+}
+
+.cancel-button {
+    background-color: transparent;
+    color: var(--text-secondary-color);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 8px 15px;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-speed) ease;
+    margin-top: 15px;
+    align-self: center;
+}
+
+.cancel-button:hover:not(:disabled) {
+    background-color: var(--border-color);
+    color: var(--text-color);
+}
+
+.cancel-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 /* --- Preview Table --- */
