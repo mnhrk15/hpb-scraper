@@ -5,6 +5,6 @@ REQUEST_WAIT_SECONDS = 1
 # リトライ回数
 RETRY_COUNT = 3
 # データベースファイルパス
-DATABASE_URI = 'instance/app.db'
+DATABASE = 'instance/app.db'
 # 初期データCSVパス
 AREA_CSV_PATH = 'data/area.csv' 

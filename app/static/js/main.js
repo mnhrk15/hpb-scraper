@@ -2,10 +2,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const scrapeForm = document.getElementById('scrape-form');
     const runButton = document.getElementById('run-button');
     const buttonText = runButton.querySelector('.button-text');
-    const statusArea = document.getElementById('status-area');
-    const resultArea = document.getElementById('result-area');
-    const progressContainer = document.getElementById('progress-container');
+    const statusCard = document.getElementById('status-card');
+    const statusTitle = document.getElementById('status-title');
+    const statusDetails = document.getElementById('status-details');
     const progressBar = document.getElementById('progress-bar');
+    const resultCard = document.getElementById('result-card');
     let eventSource = null;
 
     scrapeForm.addEventListener('submit', (event) => {
@@ -16,12 +17,16 @@ document.addEventListener('DOMContentLoaded', () => {
             eventSource.close();
         }
 
+        // UIを処理中状態に設定
         runButton.disabled = true;
         runButton.classList.add('loading');
-        buttonText.textContent = '処理中...';
-        statusArea.textContent = 'サーバーに接続しています...';
-        resultArea.innerHTML = '';
-        progressContainer.style.display = 'none'; // プログレスバーを非表示にリセット
+        statusCard.style.display = 'flex';
+        statusCard.style.animation = 'fadeInUp 0.5s ease-out forwards';
+        statusTitle.textContent = '接続中...';
+        statusDetails.textContent = 'サーバーとの接続を確立しています。';
+        progressBar.style.width = '0%';
+        resultCard.style.display = 'none';
+        resultCard.innerHTML = '';
 
         const formData = new FormData(scrapeForm);
         const areaId = formData.get('area_id');
@@ -30,70 +35,79 @@ document.addEventListener('DOMContentLoaded', () => {
         eventSource = new EventSource(`/scrape?area_id=${areaId}`);
 
         eventSource.onopen = () => {
-            statusArea.textContent = 'サーバーとの接続が確立されました。処理を開始します...';
+            statusTitle.textContent = '処理開始';
+            statusDetails.textContent = 'サーバーとの接続が確立されました。';
         };
 
         eventSource.addEventListener('message', (e) => {
-            statusArea.textContent = e.data;
+            statusTitle.textContent = '情報収集中';
+            statusDetails.textContent = e.data;
         });
 
         eventSource.addEventListener('url_progress', (e) => {
             const progress = JSON.parse(e.data);
+            statusTitle.textContent = 'URL収集中';
+            statusDetails.textContent = `サロン一覧ページをスキャンしています... (${progress.current}/${progress.total}ページ)`;
             if (progress.total > 0) {
-                progressContainer.style.display = 'block';
-                progressBar.max = progress.total;
-                progressBar.value = progress.current;
+                progressBar.style.width = `${(progress.current / progress.total) * 100}%`;
             }
-            statusArea.textContent = `サロン一覧ページを収集中... (${progress.current}/${progress.total}ページ)`;
         });
 
         eventSource.addEventListener('progress', (e) => {
             const progress = JSON.parse(e.data);
+            statusTitle.textContent = '詳細情報取得中';
+            statusDetails.textContent = `サロン詳細情報を取得しています... (${progress.current}/${progress.total}件)`;
             if (progress.total > 0) {
-                progressContainer.style.display = 'block'; // プログレスバーを表示
-                progressBar.max = progress.total;
-                progressBar.value = progress.current;
+                progressBar.style.width = `${(progress.current / progress.total) * 100}%`;
             }
-            statusArea.textContent = `サロン詳細情報を取得中... (${progress.current}/${progress.total}件)`;
         });
 
         eventSource.addEventListener('result', (e) => {
             const result = JSON.parse(e.data);
-            statusArea.textContent = `「${selectedAreaName}」の処理が完了しました。`;
-            progressContainer.style.display = 'none'; // 完了したら非表示
-
-            const downloadLink = document.createElement('a');
-            downloadLink.href = `/download/${result.file_name}`;
-            downloadLink.textContent = `${result.file_name} をダウンロード`;
-            resultArea.appendChild(downloadLink);
-
-            eventSource.close();
-            runButton.disabled = false;
-            runButton.classList.remove('loading');
-            buttonText.textContent = 'スクレイピング実行';
+            statusCard.style.display = 'none';
+            showResultCard(true, `処理が正常に完了しました。`, `ファイル名: ${result.file_name}`, result.file_name);
+            resetUI();
         });
 
         eventSource.onerror = (e) => {
-            let errorMessage = 'サーバーとの接続でエラーが発生しました。';
-            try {
-                // EventSourceのエラーイベントは詳細を直接渡さないため、
-                // 最後のメッセージや一般的なエラーを示す。
+            let errorMessage = 'サーバーとの接続で予期せぬエラーが発生しました。';
+            // 詳細なエラーメッセージの取得を試みる (ただし通常は限定的)
+             try {
                 if (e.data) {
                     const errorData = JSON.parse(e.data);
-                    errorMessage = errorData.error;
+                    if (errorData.error) {
+                        errorMessage = errorData.error;
+                    }
                 }
-            } catch (parseError) {
-                // Do nothing, use the generic error message
-            }
+            } catch (parseError) { /* ignore */ }
             
-            statusArea.textContent = 'エラーが発生しました。';
-            resultArea.textContent = errorMessage;
-            progressContainer.style.display = 'none'; // エラー時も非表示
-            
-            eventSource.close();
-            runButton.disabled = false;
-            runButton.classList.remove('loading');
-            buttonText.textContent = 'スクレイピング実行';
+            statusCard.style.display = 'none';
+            showResultCard(false, 'エラーが発生しました', errorMessage, null);
+            resetUI();
         };
     });
+
+    function showResultCard(isSuccess, title, message, fileName) {
+        resultCard.innerHTML = `
+            <div class="result-icon ${isSuccess ? 'success' : 'error'}">
+                <svg viewBox="0 0 24 24" class="${isSuccess ? 'success-icon' : 'error-icon'}">
+                    ${isSuccess 
+                        ? '<path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>' 
+                        : '<path d="M11 15h2v2h-2zm0-8h2v6h-2zm.99-5C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/>'
+                    }
+                </svg>
+            </div>
+            <h2 class="result-title">${title}</h2>
+            <p class="result-message">${message}</p>
+            ${fileName ? `<a href="/download/${fileName}" class="download-link">ファイルをダウンロード</a>` : ''}
+        `;
+        resultCard.style.display = 'flex';
+        resultCard.style.animation = 'fadeInUp 0.5s ease-out forwards';
+    }
+
+    function resetUI() {
+        if(eventSource) eventSource.close();
+        runButton.disabled = false;
+        runButton.classList.remove('loading');
+    }
 }); 
