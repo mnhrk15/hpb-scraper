@@ -20,13 +20,15 @@
             <div class="card">
                 <form id="scrape-form">
                     <div class="form-group">
-                        <label for="area-select">エリアを選択</label>
-                        <div class="select-wrapper">
-                            <select name="area_id" id="area-select">
+                        <label for="area-search-input">エリアを選択</label>
+                        <div id="custom-select-container" class="custom-select-container">
+                            <input type="text" id="area-search-input" placeholder="エリア名で検索・選択..." autocomplete="off">
+                            <input type="hidden" name="area_id" id="selected-area-id">
+                            <div id="area-options-list" class="area-options-list">
                                 {% for area in areas %}
-                                <option value="{{ area.id }}">{{ area.name }}</option>
+                                <div class="area-option" data-value="{{ area.id }}">{{ area.name }}</div>
                                 {% endfor %}
-                            </select>
+                            </div>
                         </div>
                     </div>
                     <button type="submit" id="run-button">

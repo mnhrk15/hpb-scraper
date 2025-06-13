@@ -1,6 +1,57 @@
 document.addEventListener('DOMContentLoaded', () => {
     const scrapeForm = document.getElementById('scrape-form');
     const runButton = document.getElementById('run-button');
+
+    // Custom select-box logic
+    const customSelectContainer = document.getElementById('custom-select-container');
+    const searchInput = document.getElementById('area-search-input');
+    const selectedAreaIdInput = document.getElementById('selected-area-id');
+    const optionsList = document.getElementById('area-options-list');
+    const options = optionsList.querySelectorAll('.area-option');
+    let selectedOption = null;
+
+    searchInput.addEventListener('focus', () => {
+        optionsList.style.display = 'block';
+        filterOptions(''); // Show all options on focus
+    });
+
+    searchInput.addEventListener('input', () => {
+        filterOptions(searchInput.value);
+    });
+
+    function filterOptions(searchTerm) {
+        const lowerCaseSearchTerm = searchTerm.toLowerCase();
+        options.forEach(option => {
+            const areaName = option.textContent.toLowerCase();
+            const isMatch = areaName.includes(lowerCaseSearchTerm);
+            option.classList.toggle('hidden', !isMatch);
+        });
+    }
+
+    options.forEach(option => {
+        option.addEventListener('click', () => {
+            selectOption(option);
+            optionsList.style.display = 'none';
+        });
+    });
+
+    function selectOption(option) {
+        if (selectedOption) {
+            selectedOption.classList.remove('selected');
+        }
+        selectedOption = option;
+        selectedOption.classList.add('selected');
+        
+        searchInput.value = option.textContent;
+        selectedAreaIdInput.value = option.dataset.value;
+    }
+
+    document.addEventListener('click', (e) => {
+        if (!customSelectContainer.contains(e.target)) {
+            optionsList.style.display = 'none';
+        }
+    });
+
     const buttonText = runButton.querySelector('.button-text');
     const statusCard = document.getElementById('status-card');
     const statusTitle = document.getElementById('status-title');
@@ -12,7 +63,12 @@ document.addEventListener('DOMContentLoaded', () => {
     scrapeForm.addEventListener('submit', (event) => {
         event.preventDefault();
 
-        // 既存の接続があれば閉じる
+        if (!selectedAreaIdInput.value) {
+            // Simple validation: Show an alert or a more elegant message
+            alert('エリアを選択してください。');
+            return;
+        }
+
         if (eventSource) {
             eventSource.close();
         }
@@ -28,9 +84,7 @@ document.addEventListener('DOMContentLoaded', () => {
         resultCard.style.display = 'none';
         resultCard.innerHTML = '';
 
-        const formData = new FormData(scrapeForm);
-        const areaId = formData.get('area_id');
-        const selectedAreaName = scrapeForm.querySelector('select[name="area_id"] option:checked').textContent;
+        const areaId = selectedAreaIdInput.value;
         
         eventSource = new EventSource(`/scrape?area_id=${areaId}`);
 
