@@ -45,7 +45,6 @@ def init_db():
     csv_path = current_app.config['AREA_CSV_PATH']
     if os.path.exists(csv_path):
         df = pd.read_csv(csv_path)
-        df.rename(columns={'area': 'name'}, inplace=True)
         df.to_sql('areas', db, if_exists='append', index=False)
     
     db.commit()

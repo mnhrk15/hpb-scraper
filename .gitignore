@@ -20,3 +20,5 @@ instance/
 # Scraped data
 output/
 *.xlsx 
+
+.env

@@ -63,19 +63,29 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 4. SECRET_KEY の設定
+### 4. 環境変数の設定
 
-セキュリティのため、強力な `SECRET_KEY` を設定してください。
-`config.py` を編集し、`SECRET_KEY` を追加します。
+アプリケーションの設定は環境変数で行います。プロジェクトのルートディレクトリに `.env` ファイルを作成し、以下の内容を記述してください。
 
-**`config.py`**
-```python
-# ... 既存の設定 ...
+```bash
+# .env.example をコピーして .env ファイルを作成
+cp .env.example .env
+```
+
+次に、`.env` ファイルを編集して、`SECRET_KEY` に強力なキーを設定します。
+
+**`.env`**
+```ini
+# ... 他の設定 ...
 
 # セキュリティキー (本番環境では必ず変更してください)
-# 以下のコマンドで生成できます: python -c 'import secrets; print(secrets.token_hex())'
-SECRET_KEY = 'ここに生成した強力なキーを設定'
+# 以下のコマンドで生成できます: python -c 'import secrets; print(secrets.token_hex(24))'
+SECRET_KEY='ここに生成した強力なキーを設定'
+
+# ... 他の設定 ...
 ```
+
+`.env.example` ファイルにすべての設定可能な変数の説明がありますので、必要に応じてカスタマイズしてください。
 
 ### 5. データベースの初期化
 
@@ -117,8 +127,9 @@ gunicorn --workers 4 --bind 0.0.0.0:8000 wsgi:app
 
 ## 設定
 
-主要な設定は `config.py` ファイルで変更できます。
+主要な設定は `.env` ファイルで変更できます。詳細は `.env.example` を参照してください。
 
+- `SECRET_KEY`: Flaskのセッション暗号化キー。
 - `MAX_WORKERS`: スクレイピング時の並列実行数（スレッド数）。
 - `REQUEST_WAIT_SECONDS`: 各HTTPリクエスト間の待機時間（秒）。サーバーへの負荷を軽減します。
 - `RETRY_COUNT`: HTTPリクエスト失敗時のリトライ回数。

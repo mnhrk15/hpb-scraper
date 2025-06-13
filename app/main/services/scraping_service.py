@@ -14,6 +14,8 @@ from flask import current_app
 from ...db import get_db
 
 class ScrapingService:
+    ITEMS_PER_PAGE = 20  # 1ページあたりのサロン表示数
+
     def __init__(self):
         # 設定値の読み込み
         self.config = current_app.config
@@ -152,7 +154,7 @@ class ScrapingService:
         match_ken = re.search(r'全(\d+)件', pagination_text)
         if match_ken:
             total_items = int(match_ken.group(1))
-            total_pages = (total_items + 19) // 20
+            total_pages = (total_items + self.ITEMS_PER_PAGE - 1) // self.ITEMS_PER_PAGE
             return total_pages, final_url
         
         return total_pages, final_url
