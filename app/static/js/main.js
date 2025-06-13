@@ -1,8 +1,11 @@
 document.addEventListener('DOMContentLoaded', () => {
     const scrapeForm = document.getElementById('scrape-form');
     const runButton = document.getElementById('run-button');
+    const buttonText = runButton.querySelector('.button-text');
     const statusArea = document.getElementById('status-area');
     const resultArea = document.getElementById('result-area');
+    const progressContainer = document.getElementById('progress-container');
+    const progressBar = document.getElementById('progress-bar');
     let eventSource = null;
 
     scrapeForm.addEventListener('submit', (event) => {
@@ -14,9 +17,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         runButton.disabled = true;
-        runButton.textContent = '処理中...';
+        runButton.classList.add('loading');
+        buttonText.textContent = '処理中...';
         statusArea.textContent = 'サーバーに接続しています...';
         resultArea.innerHTML = '';
+        progressContainer.style.display = 'none'; // プログレスバーを非表示にリセット
 
         const formData = new FormData(scrapeForm);
         const areaId = formData.get('area_id');
@@ -32,14 +37,30 @@ document.addEventListener('DOMContentLoaded', () => {
             statusArea.textContent = e.data;
         });
 
+        eventSource.addEventListener('url_progress', (e) => {
+            const progress = JSON.parse(e.data);
+            if (progress.total > 0) {
+                progressContainer.style.display = 'block';
+                progressBar.max = progress.total;
+                progressBar.value = progress.current;
+            }
+            statusArea.textContent = `サロン一覧ページを収集中... (${progress.current}/${progress.total}ページ)`;
+        });
+
         eventSource.addEventListener('progress', (e) => {
             const progress = JSON.parse(e.data);
+            if (progress.total > 0) {
+                progressContainer.style.display = 'block'; // プログレスバーを表示
+                progressBar.max = progress.total;
+                progressBar.value = progress.current;
+            }
             statusArea.textContent = `サロン詳細情報を取得中... (${progress.current}/${progress.total}件)`;
         });
 
         eventSource.addEventListener('result', (e) => {
             const result = JSON.parse(e.data);
             statusArea.textContent = `「${selectedAreaName}」の処理が完了しました。`;
+            progressContainer.style.display = 'none'; // 完了したら非表示
 
             const downloadLink = document.createElement('a');
             downloadLink.href = `/download/${result.file_name}`;
@@ -48,7 +69,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             eventSource.close();
             runButton.disabled = false;
-            runButton.textContent = 'スクレイピング実行';
+            runButton.classList.remove('loading');
+            buttonText.textContent = 'スクレイピング実行';
         });
 
         eventSource.onerror = (e) => {
@@ -66,10 +88,12 @@ document.addEventListener('DOMContentLoaded', () => {
             
             statusArea.textContent = 'エラーが発生しました。';
             resultArea.textContent = errorMessage;
+            progressContainer.style.display = 'none'; // エラー時も非表示
             
             eventSource.close();
             runButton.disabled = false;
-            runButton.textContent = 'スクレイピング実行';
+            runButton.classList.remove('loading');
+            buttonText.textContent = 'スクレイピング実行';
         };
     });
 }); 

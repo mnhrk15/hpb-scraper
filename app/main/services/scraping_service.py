@@ -47,10 +47,11 @@ class ScrapingService:
             yield f"event: message\ndata: 「{area_info['name']}」のスクレイピングを開始します。\n\n"
 
             total_pages, final_area_url = self._get_total_pages(area_info['url'])
-            yield f"event: message\ndata: 総ページ数を特定しました: {total_pages}ページ\n\n"
+            yield f"event: message\ndata: 総ページ数を特定しました: {total_pages}ページ。一覧からURLを収集中...\n\n"
 
-            salon_urls = self._get_all_salon_urls(final_area_url, total_pages)
-            yield f"event: message\ndata: {len(salon_urls)}件のサロンURLを収集しました。詳細情報の取得を開始します。\n\n"
+            salon_urls = yield from self._get_all_salon_urls(final_area_url, total_pages)
+            
+            yield f"event: message\ndata: {len(salon_urls)}件のユニークなサロンURLを収集しました。詳細情報の取得を開始します。\n\n"
 
             salon_details = []
             with ThreadPoolExecutor(max_workers=self.config['MAX_WORKERS']) as executor:
@@ -91,19 +92,31 @@ class ScrapingService:
 
         final_url = response.url
         soup = BeautifulSoup(response.text, 'html.parser')
-        pagination_text = soup.select_one(self.selectors['area_page']['pagination'])
-        if not pagination_text:
+        pagination_element = soup.select_one(self.selectors['area_page']['pagination'])
+        if not pagination_element:
             return 1, final_url
         
-        match = re.search(r'全(\d+)件', pagination_text.text)
-        if not match:
-            return 1, final_url
+        pagination_text = pagination_element.text.strip()
+        total_pages = 1
+
+        # パターン1: "1/9ページ" 形式
+        match_slash = re.search(r'\d+/(\d+)ページ', pagination_text)
+        if match_slash:
+            total_pages = int(match_slash.group(1))
+            return total_pages, final_url
+
+        # パターン2: "全150件" 形式
+        match_ken = re.search(r'全(\d+)件', pagination_text)
+        if match_ken:
+            total_items = int(match_ken.group(1))
+            total_pages = (total_items + 19) // 20
+            return total_pages, final_url
         
-        total_items = int(match.group(1))
-        return (total_items + 19) // 20, final_url
+        return total_pages, final_url
 
     def _get_all_salon_urls(self, area_url, total_pages):
         all_urls = set()
+        page_urls = []
 
         paginated_base_url = area_url
         if paginated_base_url.endswith('/'):
@@ -111,20 +124,40 @@ class ScrapingService:
 
         for page in range(1, total_pages + 1):
             if page == 1:
-                page_url = area_url
+                page_urls.append(area_url)
             else:
-                page_url = f"{paginated_base_url}/pn{page}.html"
+                page_urls.append(f"{paginated_base_url}/PN{page}.html")
 
-            response = self._make_request(page_url)
-            if not response: continue
+        with ThreadPoolExecutor(max_workers=self.config['MAX_WORKERS']) as executor:
+            if not page_urls:
+                return []
             
-            soup = BeautifulSoup(response.text, 'html.parser')
-            links = soup.select(self.selectors['area_page']['salon_url_in_list'])
-            for link in links:
-                if 'href' in link.attrs:
-                    full_url = requests.compat.urljoin(page_url, link['href'])
-                    all_urls.add(full_url)
+            future_to_url = {executor.submit(self._get_salon_urls_from_page, url): url for url in page_urls}
+            for i, future in enumerate(as_completed(future_to_url), 1):
+                yield f"event: url_progress\ndata: {json.dumps({'current': i, 'total': total_pages})}\n\n"
+                try:
+                    urls_from_page = future.result()
+                    all_urls.update(urls_from_page)
+                except Exception as exc:
+                    url = future_to_url[future]
+                    current_app.logger.error(f'{url} (list page) generated an exception: {exc}')
+        
         return list(all_urls)
+
+    def _get_salon_urls_from_page(self, page_url):
+        """1つの一覧ページからサロンURLをすべて取得する"""
+        urls_on_page = set()
+        response = self._make_request(page_url)
+        if not response:
+            return urls_on_page
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        links = soup.select(self.selectors['area_page']['salon_url_in_list'])
+        for link in links:
+            if 'href' in link.attrs:
+                full_url = requests.compat.urljoin(page_url, link['href'])
+                urls_on_page.add(full_url)
+        return urls_on_page
 
     def _scrape_salon_details(self, salon_url):
         response = self._make_request(salon_url)
@@ -180,8 +213,3 @@ class ScrapingService:
         
         df.to_excel(file_path, index=False, sheet_name='サロンリスト')
         return file_name
-
-# (以下の関数は後のステップで詳細を実装)
-# def _get_total_pages(self, area_url): ...
-# def _get_salon_urls_from_page(self, page_url): ...
-# def _scrape_salon_details(self, salon_url): ... 
