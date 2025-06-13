@@ -119,7 +119,7 @@ document.addEventListener('DOMContentLoaded', () => {
         eventSource.addEventListener('result', (e) => {
             const result = JSON.parse(e.data);
             statusCard.style.display = 'none';
-            showResultCard(true, `処理が正常に完了しました。`, `ファイル名: ${result.file_name}`, result.file_name);
+            showResultCard(true, `処理が正常に完了しました。`, `ファイル名: ${result.file_name}`, result.file_name, result.preview_data);
             resetUI();
         });
 
@@ -136,12 +136,39 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (parseError) { /* ignore */ }
             
             statusCard.style.display = 'none';
-            showResultCard(false, 'エラーが発生しました', errorMessage, null);
+            showResultCard(false, 'エラーが発生しました', errorMessage, null, null);
             resetUI();
         };
     });
 
-    function showResultCard(isSuccess, title, message, fileName) {
+    function showResultCard(isSuccess, title, message, fileName, previewData) {
+        let previewHtml = '';
+        if (isSuccess && previewData && previewData.length > 0) {
+            const headers = Object.keys(previewData[0]);
+            const headerHtml = headers.map(header => `<th>${header}</th>`).join('');
+
+            const rowsHtml = previewData.map(row => {
+                const cellsHtml = headers.map(header => `<td>${row[header] || ''}</td>`).join('');
+                return `<tr>${cellsHtml}</tr>`;
+            }).join('');
+
+            previewHtml = `
+                <div class="preview-container">
+                    <p class="preview-title">データプレビュー (先頭${previewData.length}件)</p>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>${headerHtml}</tr>
+                            </thead>
+                            <tbody>
+                                ${rowsHtml}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        }
+
         resultCard.innerHTML = `
             <div class="result-icon ${isSuccess ? 'success' : 'error'}">
                 <svg viewBox="0 0 24 24" class="${isSuccess ? 'success-icon' : 'error-icon'}">
@@ -154,6 +181,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <h2 class="result-title">${title}</h2>
             <p class="result-message">${message}</p>
             ${fileName ? `<a href="/download/${fileName}" class="download-link">ファイルをダウンロード</a>` : ''}
+            ${previewHtml}
         `;
         resultCard.style.display = 'flex';
         resultCard.style.animation = 'fadeInUp 0.5s ease-out forwards';

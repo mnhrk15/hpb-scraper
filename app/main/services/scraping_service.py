@@ -71,8 +71,15 @@ class ScrapingService:
                         yield f"event: message\ndata: エラー発生: {url} の処理中に問題がありました。\n\n"
 
             yield f"event: message\ndata: {len(salon_details)}件の詳細情報を取得しました。Excelファイルを生成します。\n\n"
+            
+            preview_data = salon_details[:5]
             file_name = self._create_excel_file(salon_details, area_info['name'])
-            yield f"event: result\ndata: {json.dumps({'file_name': file_name})}\n\n"
+            
+            result_payload = {
+                'file_name': file_name,
+                'preview_data': preview_data
+            }
+            yield f"event: result\ndata: {json.dumps(result_payload)}\n\n"
         
         except Exception as e:
             current_app.logger.error(f"Scraping service error: {e}", exc_info=True)
