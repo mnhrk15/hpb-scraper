@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HotPepperBeautyサロン情報スクレイピングアプリ</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; }
+        #status-area, #result-area { margin-top: 1em; padding: 1em; border: 1px solid #ccc; }
+    </style>
+</head>
+<body>
+    <h1>HotPepperBeautyサロン情報スクレイピングアプリ</h1>
+
+    <form id="scrape-form">
+        <label for="area-select">エリア選択:</label>
+        <select name="area_id" id="area-select">
+            {% for area in areas %}
+            <option value="{{ area.id }}">{{ area.name }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit" id="run-button">スクレイピング実行</button>
+    </form>
+
+    <div id="status-area">
+        処理状況がここに表示されます。
+    </div>
+
+    <div id="result-area">
+        結果がここに表示されます。
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html> 
