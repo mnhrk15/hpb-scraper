@@ -79,5 +79,5 @@ def download(filename):
     """
     生成されたExcelファイルをダウンロードさせる。
     """
-    directory = current_app.config['OUTPUT_DIR']
+    directory = os.path.join(current_app.root_path, '..', current_app.config['OUTPUT_DIR'])
     return send_from_directory(directory, filename, as_attachment=True) 

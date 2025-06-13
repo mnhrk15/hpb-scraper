@@ -22,4 +22,4 @@ DATABASE = os.getenv('DATABASE', 'instance/app.db')
 # 初期データCSVパス
 AREA_CSV_PATH = os.getenv('AREA_CSV_PATH', 'data/area.csv')
 # 出力ディレクトリ
-OUTPUT_DIR = os.getenv('OUTPUT_DIR', os.path.join(BASE_DIR, 'output')) 
+OUTPUT_DIR = os.getenv('OUTPUT_DIR', 'output') 

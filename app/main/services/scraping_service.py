@@ -22,6 +22,7 @@ class ScrapingService:
         self.selectors = self._load_selectors()
         self.session = requests.Session()
         self.instance_path = current_app.instance_path
+        self.logger = current_app.logger
         
     def _is_cancelled(self, job_id):
         """ジョブがキャンセルされたかどうかをファイルシステムのシグナルでチェックする"""
@@ -34,27 +35,27 @@ class ScrapingService:
             return json.load(f)
 
     def _make_request(self, url, job_id):
-        """信頼性を高めたHTTP GETリクエストを送信する (キャンセル対応)"""
-        for i in range(self.config['RETRY_COUNT']):
+        """
+        信頼性を高めたHTTP GETリクエストを送信する。
+        リクエストの成功・失敗にかかわらず、毎回指定秒数待機する。
+        """
+        for attempt in range(self.config['RETRY_COUNT']):
             if self._is_cancelled(job_id):
-                current_app.logger.info(f"Request cancelled for {url} before attempt {i+1}")
+                self.logger.info(f"Request cancelled for {url} before attempt {attempt + 1}")
                 return None
 
             try:
-                # 応答性を高めるためタイムアウトを短縮
                 response = self.session.get(url, timeout=10)
                 response.raise_for_status()
+                # 成功した場合、待機してからレスポンスを返す
+                time.sleep(self.config['REQUEST_WAIT_SECONDS'])
                 return response
             except requests.exceptions.RequestException as e:
-                current_app.logger.warning(f"Request failed for {url} (attempt {i+1}/{self.config['RETRY_COUNT']}): {e}")
-
-            # スリープ前にもキャンセルをチェック
-            if self._is_cancelled(job_id):
-                current_app.logger.info(f"Request cancelled for {url} after failed attempt {i+1}")
-                return None
-            time.sleep(self.config['REQUEST_WAIT_SECONDS'])
-
-        current_app.logger.error(f"Request failed for {url} after {self.config['RETRY_COUNT']} attempts.")
+                self.logger.warning(f"Request failed for {url} (attempt {attempt + 1}/{self.config['RETRY_COUNT']}): {e}")
+                # 失敗した場合も、リトライする前に待機する
+                time.sleep(self.config['REQUEST_WAIT_SECONDS'])
+        
+        self.logger.error(f"Request failed for {url} after {self.config['RETRY_COUNT']} attempts.")
         return None
 
     def run_scraping(self, area_id, job_id):
@@ -101,7 +102,7 @@ class ScrapingService:
                         yield f"event: progress\ndata: {json.dumps({'current': i, 'total': len(salon_urls)})}\n\n"
                     except Exception as exc:
                         url = future_to_url[future]
-                        current_app.logger.error(f'{url} generated an exception: {exc}')
+                        self.logger.error(f'{url} generated an exception: {exc}')
                         yield f"event: message\ndata: エラー発生: {url} の処理中に問題がありました。\n\n"
 
             if self._is_cancelled(job_id):
@@ -120,7 +121,7 @@ class ScrapingService:
             yield f"event: result\ndata: {json.dumps(result_payload)}\n\n"
         
         except Exception as e:
-            current_app.logger.error(f"Scraping service error: {e}", exc_info=True)
+            self.logger.error(f"Scraping service error: {e}", exc_info=True)
             yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
 
     def _get_area_info(self, area_id):
@@ -190,7 +191,7 @@ class ScrapingService:
                     all_urls.update(urls_from_page)
                 except Exception as exc:
                     url = future_to_url[future]
-                    current_app.logger.error(f'{url} (list page) generated an exception: {exc}')
+                    self.logger.error(f'{url} (list page) generated an exception: {exc}')
         
         return list(all_urls)
 
@@ -246,7 +247,7 @@ class ScrapingService:
 
     def _create_excel_file(self, data, area_name):
         if not data:
-            current_app.logger.warning("No data scraped, creating an empty Excel file.")
+            self.logger.warning("No data scraped, creating an empty Excel file.")
         
         df = pd.DataFrame(data)
         columns_order = ['サロン名', '電話番号', '住所', 'スタッフ数', '関連リンク', '関連リンク数', 'サロンURL']
