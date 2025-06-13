@@ -210,6 +210,25 @@ class ScrapingService:
                 urls_on_page.add(full_url)
         return urls_on_page
 
+    def _get_value_by_th_text(self, soup, th_text):
+        """
+        指定されたテキストを持つ<th>の次の<td>要素の値を取得する。
+        テーブル内の<th>を検索し、その隣の<td>のテキストを返す。
+        """
+        # 'slnDataTbl'クラスを持つテーブルにスコープを限定
+        data_table = soup.select_one('table.slnDataTbl')
+        if not data_table:
+            return ''
+
+        # th_textを部分的に含むth要素を検索
+        th_element = data_table.find('th', string=lambda t: t and th_text in t.strip())
+        if th_element:
+            td_element = th_element.find_next_sibling('td')
+            if td_element:
+                # <p>タグなどが含まれるケースを考慮し、get_text()でテキストを抽出
+                return td_element.get_text(separator=' ', strip=True)
+        return ''
+
     def _scrape_salon_details(self, salon_url, job_id):
         response = self._make_request(salon_url, job_id)
         if not response: return None
@@ -231,11 +250,11 @@ class ScrapingService:
         return {
             'サロン名': get_text(self.selectors['salon_detail']['name']),
             '電話番号': phone_number,
-            '住所': get_text(self.selectors['salon_detail']['address']),
-            'スタッフ数': get_text(self.selectors['salon_detail']['staff_count']),
-            '関連リンク': "\\n".join(related_links),
+            '住所': self._get_value_by_th_text(soup, '住所'),
+            'スタッフ数': self._get_value_by_th_text(soup, 'スタッフ数'),
+            '関連リンク': "\n".join(related_links),
             '関連リンク数': len(related_links),
-            'サロンURL': salon_url,
+            'サロンURL': salon_url.split('?')[0],
         }
 
     def _scrape_phone_number(self, phone_page_url, job_id):

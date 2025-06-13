@@ -6,8 +6,6 @@
   },
   "salon_detail": {
     "name": "p.detailTitle a",
-    "address": "table.slnDataTbl td[colspan='3']",
-    "staff_count": "table.slnDataTbl td.w208.vaT",
     "related_links": "div.mT30.mB20 ul.mT10 a",
     "phone_page_link": "a[href*='/tel/']"
   },
