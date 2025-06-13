@@ -3,6 +3,7 @@ import uuid
 from flask import (
     Blueprint, render_template, current_app, request, jsonify, send_from_directory, Response
 )
+from sqlalchemy import text
 from . import bp
 from ..db import get_db
 from .services.scraping_service import ScrapingService
@@ -15,8 +16,8 @@ def index():
     """
     db = get_db()
     areas_query = db.execute(
-        'SELECT id, name, prefecture FROM areas'
-    ).fetchall()
+        text('SELECT id, name, prefecture FROM areas')
+    ).mappings().all()
 
     # 47都道府県の地理的順序リスト (JIS X 0401準拠)
     prefecture_order = [

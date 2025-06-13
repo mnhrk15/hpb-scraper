@@ -4,6 +4,7 @@ import os
 import pandas as pd
 from flask import current_app, g
 from flask.cli import with_appcontext
+from sqlalchemy import create_engine, inspect, text
 
 def get_db():
     """
@@ -11,11 +12,8 @@ def get_db():
     接続が存在しない場合は新たに作成する。
     """
     if 'db' not in g:
-        g.db = sqlite3.connect(
-            current_app.config['DATABASE'],
-            detect_types=sqlite3.PARSE_DECLTYPES
-        )
-        g.db.row_factory = sqlite3.Row
+        g.engine = create_engine(current_app.config['DATABASE_URI'])
+        g.db = g.engine.connect()
     return g.db
 
 def close_db(e=None):
@@ -25,6 +23,7 @@ def close_db(e=None):
     db = g.pop('db', None)
     if db is not None:
         db.close()
+    g.pop('engine', None)
 
 def init_db():
     """
@@ -32,20 +31,35 @@ def init_db():
     """
     db = get_db()
     
-    db.execute('DROP TABLE IF EXISTS areas')
-    db.execute('''
-        CREATE TABLE areas (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            prefecture TEXT NOT NULL,
-            name TEXT NOT NULL,
-            url TEXT NOT NULL UNIQUE
-        )
-    ''')
+    db.execute(text('DROP TABLE IF EXISTS areas'))
+
+    # DBの種類に応じてCREATE文を切り替える
+    is_sqlite = current_app.config['DATABASE_URI'].startswith('sqlite')
+    if is_sqlite:
+        create_stmt = '''
+            CREATE TABLE areas (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                prefecture TEXT NOT NULL,
+                name TEXT NOT NULL,
+                url TEXT NOT NULL UNIQUE
+            )
+        '''
+    else: # PostgreSQL
+        create_stmt = '''
+            CREATE TABLE areas (
+                id SERIAL PRIMARY KEY,
+                prefecture TEXT NOT NULL,
+                name TEXT NOT NULL,
+                url TEXT NOT NULL UNIQUE
+            )
+        '''
+    db.execute(text(create_stmt))
     
     csv_path = current_app.config['AREA_CSV_PATH']
     if os.path.exists(csv_path):
         df = pd.read_csv(csv_path)
-        df.to_sql('areas', db, if_exists='append', index=False)
+        # to_sqlにはengineを渡す
+        df.to_sql('areas', db.engine, if_exists='append', index=False)
     
     db.commit()
 
@@ -55,6 +69,18 @@ def init_db_command():
     """DBをクリアして初期化するCLIコマンド。"""
     init_db()
     click.echo('Initialized the database.')
+
+def init_db_if_needed():
+    """ アプリケーション起動時にDBテーブルが存在しない場合、自動で初期化する """
+    try:
+        engine = create_engine(current_app.config['DATABASE_URI'])
+        inspector = inspect(engine)
+        if not inspector.has_table("areas"):
+            current_app.logger.info('"areas" table not found, initializing database...')
+            init_db()
+            current_app.logger.info('Database initialized.')
+    except Exception as e:
+        current_app.logger.error(f"Could not check or initialize database: {e}")
 
 def init_app(app):
     """

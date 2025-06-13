@@ -10,6 +10,7 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from flask import current_app
+from sqlalchemy import text
 
 from ...db import get_db
 
@@ -126,7 +127,8 @@ class ScrapingService:
 
     def _get_area_info(self, area_id):
         db = get_db()
-        area = db.execute('SELECT name, url FROM areas WHERE id = ?', (area_id,)).fetchone()
+        query = text('SELECT name, url FROM areas WHERE id = :id')
+        area = db.execute(query, {'id': area_id}).mappings().first()
         if area is None:
             raise ValueError(f"Area with ID {area_id} not found.")
         return {'name': area['name'], 'url': area['url']}

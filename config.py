@@ -17,8 +17,15 @@ MAX_WORKERS = int(os.getenv('MAX_WORKERS', 5))
 REQUEST_WAIT_SECONDS = int(os.getenv('REQUEST_WAIT_SECONDS', 1))
 # リトライ回数
 RETRY_COUNT = int(os.getenv('RETRY_COUNT', 3))
-# データベースファイルパス
-DATABASE = os.getenv('DATABASE', 'instance/app.db')
+
+# データベースURI (RenderのDATABASE_URLを優先し、なければローカルのSQLiteを使用)
+DATABASE_URI = os.getenv('DATABASE_URL')
+if DATABASE_URI and DATABASE_URI.startswith("postgres://"):
+    DATABASE_URI = DATABASE_URI.replace("postgres://", "postgresql://", 1)
+
+if not DATABASE_URI:
+    DATABASE_URI = f"sqlite:///{os.path.join(BASE_DIR, 'instance', 'app.db')}"
+
 # 初期データCSVパス
 AREA_CSV_PATH = os.getenv('AREA_CSV_PATH', 'data/area.csv')
 # 出力ディレクトリ
