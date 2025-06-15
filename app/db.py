@@ -73,20 +73,6 @@ def init_db_command():
     init_db()
     click.echo('Initialized the database.')
 
-def init_db_if_needed():
-    """ アプリケーション起動時にDBテーブルが存在しない場合、自動で初期化する """
-    try:
-        if engine is None:
-            raise RuntimeError("Database engine not initialized. Call init_app first.")
-            
-        inspector = inspect(engine)
-        if not inspector.has_table("areas"):
-            current_app.logger.info('"areas" table not found, initializing database...')
-            init_db()
-            current_app.logger.info('Database initialized.')
-    except Exception as e:
-        current_app.logger.error(f"Could not check or initialize database: {e}")
-
 def init_app(app):
     """
     FlaskアプリケーションインスタンスにDB関連の機能を登録する。

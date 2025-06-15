@@ -197,10 +197,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     scrapeForm.addEventListener('submit', (event) => {
         event.preventDefault();
+        resultCard.style.display = 'none'; // Clear previous results/errors first
 
         if (!selectedAreaIdInput.value) {
-            // Simple validation: Show an alert or a more elegant message
-            alert('エリアを選択してください。');
+            showResultCard(false, '入力エラー', 'エリアを選択してください。');
             return;
         }
 

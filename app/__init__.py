@@ -28,8 +28,4 @@ def create_app(test_config=None):
     from .main import routes
     app.register_blueprint(routes.bp)
 
-    # アプリケーション起動時にDBの存在をチェックし、必要なら初期化
-    with app.app_context():
-        db.init_db_if_needed()
-
     return app 
