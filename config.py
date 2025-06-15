@@ -18,6 +18,11 @@ REQUEST_WAIT_SECONDS = int(os.getenv('REQUEST_WAIT_SECONDS', 1))
 # リトライ回数
 RETRY_COUNT = int(os.getenv('RETRY_COUNT', 3))
 
+# キャンセルシグナルファイルの有効期間 (秒)
+CANCEL_FILE_TIMEOUT_SECONDS = int(os.getenv('CANCEL_FILE_TIMEOUT_SECONDS', 3600)) # 1時間
+# 古いキャンセルシグナルファイルをクリーンアップする際の保持期間 (秒)
+STALE_CANCEL_FILE_LIFETIME_SECONDS = int(os.getenv('STALE_CANCEL_FILE_LIFETIME_SECONDS', 86400)) # 24時間
+
 # データベースURI (RenderのDATABASE_URLを優先し、なければローカルのSQLiteを使用)
 DATABASE_URI = os.getenv('DATABASE_URL')
 if DATABASE_URI and DATABASE_URI.startswith("postgres://"):

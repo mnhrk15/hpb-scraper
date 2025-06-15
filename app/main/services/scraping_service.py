@@ -26,9 +26,35 @@ class ScrapingService:
         self.logger = current_app.logger
         
     def _is_cancelled(self, job_id):
-        """ジョブがキャンセルされたかどうかをファイルシステムのシグナルでチェックする"""
+        """
+        ジョブがキャンセルされたかどうかをチェックする。
+        シグナルファイルが存在し、かつタイムスタンプが古くない場合にTrueを返す。
+        """
         cancel_file = os.path.join(self.instance_path, f"{job_id}.cancel")
-        return os.path.exists(cancel_file)
+        if not os.path.exists(cancel_file):
+            return False
+
+        try:
+            with open(cancel_file, 'r') as f:
+                timestamp_str = f.read().strip()
+            
+            if not timestamp_str:
+                self.logger.warning(f"Cancel file for job {job_id} is empty.")
+                return False # or True, depending on desired behavior for empty file
+
+            timestamp = float(timestamp_str)
+            age = time.time() - timestamp
+
+            if age > self.config['CANCEL_FILE_TIMEOUT_SECONDS']:
+                self.logger.warning(f"Stale cancel file found for job {job_id} ({age:.0f}s old). Ignoring.")
+                # 古いファイルはここで削除しても良いかもしれない
+                # os.remove(cancel_file) 
+                return False
+            
+            return True # ファイルが存在し、かつタイムスタンプが有効期間内
+        except (ValueError, IOError) as e:
+            self.logger.error(f"Error reading cancel file for job {job_id}: {e}")
+            return False # ファイルが読めない場合はキャンセルとしない
 
     def _load_selectors(self):
         """selectors.jsonを読み込む"""

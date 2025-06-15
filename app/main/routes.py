@@ -4,6 +4,7 @@ from flask import (
     Blueprint, render_template, current_app, request, jsonify, send_from_directory, Response
 )
 from sqlalchemy import text
+import time
 from . import bp
 from ..db import get_db
 from .services.scraping_service import ScrapingService
@@ -95,9 +96,9 @@ def scrape_cancel():
 
     try:
         cancel_file_path = os.path.join(current_app.instance_path, f"{job_id}.cancel")
-        # 空のファイルを作成してシグナルとする
+        # タイムスタンプをファイルに書き込む
         with open(cancel_file_path, 'w') as f:
-            pass
+            f.write(str(time.time()))
         current_app.logger.info(f"Cancellation signal created for job: {job_id}")
         return jsonify({'status': 'cancellation_requested'})
     except IOError as e:
