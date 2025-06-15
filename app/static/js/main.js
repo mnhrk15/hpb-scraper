@@ -10,15 +10,38 @@ document.addEventListener('DOMContentLoaded', () => {
     const optionsList = document.getElementById('area-options-list');
     const options = optionsList.querySelectorAll('.area-option');
     let selectedOption = null;
+    let activeOptionIndex = -1;
+    let visibleOptions = [];
+
+    function updateVisibleOptions() {
+        visibleOptions = Array.from(optionsList.querySelectorAll('.area-option:not(.hidden)'));
+    }
+
+    function openOptionsList() {
+        optionsList.style.display = 'block';
+        customSelectContainer.setAttribute('aria-expanded', 'true');
+        formCard.style.zIndex = 10;
+        updateVisibleOptions();
+    }
+
+    function closeOptionsList() {
+        optionsList.style.display = 'none';
+        customSelectContainer.setAttribute('aria-expanded', 'false');
+        formCard.style.zIndex = 'auto';
+        activeOptionIndex = -1;
+        removeActiveDescendant();
+    }
 
     searchInput.addEventListener('focus', () => {
-        optionsList.style.display = 'block';
-        formCard.style.zIndex = 10; // Elevate form card
+        openOptionsList();
         filterOptions(''); // Show all options on focus
     });
 
     searchInput.addEventListener('input', () => {
         filterOptions(searchInput.value);
+        openOptionsList();
+        activeOptionIndex = -1; // Reset active option on new input
+        removeActiveDescendant();
     });
 
     function filterOptions(searchTerm) {
@@ -27,9 +50,6 @@ document.addEventListener('DOMContentLoaded', () => {
         
         groups.forEach(group => {
             let groupHasVisibleOptions = false;
-            const groupOptions = group.nextElementSibling;
-            
-            // This logic assumes a structure where options for a group immediately follow it.
             // A more robust implementation might use data attributes to link groups and options.
             // For now, let's find the options associated with this group.
             const optionsUnderGroup = [];
@@ -54,22 +74,24 @@ document.addEventListener('DOMContentLoaded', () => {
             
             group.classList.toggle('hidden', !isGroupMatch && !groupHasVisibleOptions);
         });
+        updateVisibleOptions();
     }
 
     options.forEach(option => {
         option.addEventListener('click', () => {
             selectOption(option);
-            optionsList.style.display = 'none';
-            formCard.style.zIndex = 'auto'; // Reset z-index
+            closeOptionsList();
         });
     });
 
     function selectOption(option) {
         if (selectedOption) {
             selectedOption.classList.remove('selected');
+            selectedOption.removeAttribute('aria-selected');
         }
         selectedOption = option;
         selectedOption.classList.add('selected');
+        selectedOption.setAttribute('aria-selected', 'true');
         
         // Find the preceding group to get the prefecture
         let precedingGroup = option.previousElementSibling;
@@ -84,9 +106,83 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.addEventListener('click', (e) => {
         if (!customSelectContainer.contains(e.target)) {
-            optionsList.style.display = 'none';
-            formCard.style.zIndex = 'auto'; // Reset z-index
+            closeOptionsList();
         }
+    });
+
+    function removeActiveDescendant() {
+        if (activeOptionIndex > -1 && visibleOptions[activeOptionIndex]) {
+            visibleOptions[activeOptionIndex].classList.remove('active');
+        }
+        searchInput.removeAttribute('aria-activedescendant');
+    }
+
+    function setActiveDescendant(newIndex) {
+        removeActiveDescendant();
+        activeOptionIndex = newIndex;
+        if (activeOptionIndex > -1 && visibleOptions[activeOptionIndex]) {
+            const activeOption = visibleOptions[activeOptionIndex];
+            activeOption.classList.add('active');
+            searchInput.setAttribute('aria-activedescendant', activeOption.id);
+            activeOption.scrollIntoView({ block: 'nearest' });
+        }
+    }
+
+    searchInput.addEventListener('keydown', (e) => {
+        const { key } = e;
+        const isListOpen = customSelectContainer.getAttribute('aria-expanded') === 'true';
+
+        if (key === 'Escape') {
+            if (isListOpen) {
+                e.preventDefault();
+                closeOptionsList();
+            }
+            return;
+        }
+
+        if (!isListOpen) {
+            if (key === 'ArrowDown' || key === 'ArrowUp') {
+                e.preventDefault();
+                openOptionsList();
+            }
+            return;
+        }
+
+        if (visibleOptions.length === 0) return;
+
+        let newIndex = activeOptionIndex;
+
+        switch(key) {
+            case 'ArrowDown':
+                e.preventDefault();
+                newIndex = activeOptionIndex < visibleOptions.length - 1 ? activeOptionIndex + 1 : 0;
+                break;
+            case 'ArrowUp':
+                e.preventDefault();
+                newIndex = activeOptionIndex > 0 ? activeOptionIndex - 1 : visibleOptions.length - 1;
+                break;
+            case 'Enter':
+                if (activeOptionIndex > -1) {
+                    e.preventDefault();
+                    selectOption(visibleOptions[activeOptionIndex]);
+                    closeOptionsList();
+                }
+                // Allow form submission if no option is active
+                return; 
+            case 'Home':
+                e.preventDefault();
+                newIndex = 0;
+                break;
+            case 'End':
+                e.preventDefault();
+                newIndex = visibleOptions.length - 1;
+                break;
+            default:
+                // For other keys, let the browser handle it (e.g., typing in the input)
+                return;
+        }
+        
+        setActiveDescendant(newIndex);
     });
 
     const buttonText = runButton.querySelector('.button-text');

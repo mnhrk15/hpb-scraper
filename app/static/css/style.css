@@ -157,6 +157,10 @@ body {
     display: none;
 }
 
+.area-option.active, .area-option:active {
+    background-color: #e0e0e0; /* A slightly darker gray for keyboard focus */
+}
+
 .area-group {
     padding: 10px 15px;
     background-color: #f8f8f8;

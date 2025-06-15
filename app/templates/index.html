@@ -21,14 +21,14 @@
                 <form id="scrape-form">
                     <div class="form-group">
                         <label for="area-search-input">エリアを選択</label>
-                        <div id="custom-select-container" class="custom-select-container">
-                            <input type="text" id="area-search-input" placeholder="エリア名で検索・選択..." autocomplete="off">
+                        <div id="custom-select-container" class="custom-select-container" role="combobox" aria-haspopup="listbox" aria-expanded="false">
+                            <input type="text" id="area-search-input" placeholder="エリア名で検索・選択..." autocomplete="off" aria-autocomplete="list" aria-controls="area-options-list" aria-activedescendant="">
                             <input type="hidden" name="area_id" id="selected-area-id">
-                            <div id="area-options-list" class="area-options-list">
+                            <div id="area-options-list" class="area-options-list" role="listbox" tabindex="-1">
                                 {% for group in grouped_areas %}
                                     <div class="area-group" data-prefecture="{{ group.prefecture }}">{{ group.prefecture }}</div>
                                     {% for area in group.areas %}
-                                        <div class="area-option" data-value="{{ area.id }}">{{ area.name }}</div>
+                                        <div class="area-option" role="option" id="area-option-{{ area.id }}" data-value="{{ area.id }}">{{ area.name }}</div>
                                     {% endfor %}
                                 {% endfor %}
                             </div>
