@@ -47,8 +47,6 @@ class ScrapingService:
 
             if age > self.config['CANCEL_FILE_TIMEOUT_SECONDS']:
                 self.logger.warning(f"Stale cancel file found for job {job_id} ({age:.0f}s old). Ignoring.")
-                # 古いファイルはここで削除しても良いかもしれない
-                # os.remove(cancel_file) 
                 return False
             
             return True # ファイルが存在し、かつタイムスタンプが有効期間内

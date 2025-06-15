@@ -1,5 +1,32 @@
 import os
+import time
+import glob
 from flask import Flask
+
+def _cleanup_stale_cancel_files(app):
+    """
+    アプリケーション起動時に、古くなったキャンセルシグナルファイルを削除する。
+    """
+    try:
+        instance_path = app.instance_path
+        if not os.path.isdir(instance_path):
+            return
+
+        lifetime = app.config.get('STALE_CANCEL_FILE_LIFETIME_SECONDS', 86400)
+        current_time = time.time()
+
+        for f in glob.glob(os.path.join(instance_path, '*.cancel')):
+            try:
+                file_mtime = os.path.getmtime(f)
+                if (current_time - file_mtime) > lifetime:
+                    os.remove(f)
+                    app.logger.info(f"Removed stale cancel file: {os.path.basename(f)}")
+            except (OSError, ValueError) as e:
+                # ファイルの読み取り/削除エラーはログに記録するが、起動は妨げない
+                app.logger.warning(f"Error processing stale cancel file {f}: {e}")
+    except Exception as e:
+        app.logger.error(f"Failed to run cancel file cleanup: {e}")
+
 
 def create_app(test_config=None):
     """
@@ -27,5 +54,10 @@ def create_app(test_config=None):
     # ブループリントの登録
     from .main import routes
     app.register_blueprint(routes.bp)
+
+    # アプリケーションコンテキスト内で起動時処理を実行
+    with app.app_context():
+        # 古いキャンセルファイルをクリーンアップ
+        _cleanup_stale_cancel_files(app)
 
     return app 
