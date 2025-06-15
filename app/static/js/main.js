@@ -93,12 +93,7 @@ document.addEventListener('DOMContentLoaded', () => {
         selectedOption.classList.add('selected');
         selectedOption.setAttribute('aria-selected', 'true');
         
-        // Find the preceding group to get the prefecture
-        let precedingGroup = option.previousElementSibling;
-        while(precedingGroup && !precedingGroup.classList.contains('area-group')) {
-            precedingGroup = precedingGroup.previousElementSibling;
-        }
-        const prefecture = precedingGroup ? precedingGroup.textContent : '';
+        const prefecture = option.dataset.prefecture || '';
 
         searchInput.value = `【${prefecture}】${option.textContent}`;
         selectedAreaIdInput.value = option.dataset.value;

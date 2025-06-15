@@ -28,7 +28,7 @@
                                 {% for group in grouped_areas %}
                                     <div class="area-group" data-prefecture="{{ group.prefecture }}">{{ group.prefecture }}</div>
                                     {% for area in group.areas %}
-                                        <div class="area-option" role="option" id="area-option-{{ area.id }}" data-value="{{ area.id }}">{{ area.name }}</div>
+                                        <div class="area-option" role="option" id="area-option-{{ area.id }}" data-value="{{ area.id }}" data-prefecture="{{ group.prefecture }}">{{ area.name }}</div>
                                     {% endfor %}
                                 {% endfor %}
                             </div>
