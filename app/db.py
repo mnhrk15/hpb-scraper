@@ -4,10 +4,25 @@ import os
 import pandas as pd
 from flask import current_app, g
 from flask.cli import with_appcontext
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import (
+    create_engine, inspect, text,
+    MetaData, Table, Column, Integer, String
+)
 
-# グローバルスコープでengineを保持
+# --- SQLAlchemy Metadata and Table Definition ---
+# グローバルスコープでengineとmetadataを保持
 engine = None
+metadata = MetaData()
+
+# areasテーブルの定義
+# これにより、DBごとの方言（AUTOINCREMENT vs SERIAL）を吸収できる
+areas_table = Table('areas', metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('prefecture', String, nullable=False),
+    Column('name', String, nullable=False),
+    Column('url', String, nullable=False, unique=True)
+)
+# ----------------------------------------------
 
 def get_db():
     """
@@ -31,36 +46,18 @@ def close_db(e=None):
 def init_db():
     """
     既存のテーブルを削除し、新しいテーブルを作成して初期データを投入する。
+    SQLAlchemyのメタデータを使用して、DBに依存しない形で実行する。
     """
     if engine is None:
         raise RuntimeError("Database engine not initialized. Call init_app first.")
 
     with engine.connect() as connection:
         with connection.begin(): # トランザクションを開始
-            connection.execute(text('DROP TABLE IF EXISTS areas'))
-
-            # DBの種類に応じてCREATE文を切り替える
-            is_sqlite = current_app.config['DATABASE_URI'].startswith('sqlite')
-            if is_sqlite:
-                create_stmt = '''
-                    CREATE TABLE areas (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        prefecture TEXT NOT NULL,
-                        name TEXT NOT NULL,
-                        url TEXT NOT NULL UNIQUE
-                    )
-                '''
-            else: # PostgreSQL
-                create_stmt = '''
-                    CREATE TABLE areas (
-                        id SERIAL PRIMARY KEY,
-                        prefecture TEXT NOT NULL,
-                        name TEXT NOT NULL,
-                        url TEXT NOT NULL UNIQUE
-                    )
-                '''
-            connection.execute(text(create_stmt))
+            # 既存のテーブルを削除し、スキーマに基づいて再作成
+            metadata.drop_all(connection)
+            metadata.create_all(connection)
             
+            # CSVから初期データを投入
             csv_path = current_app.config['AREA_CSV_PATH']
             if os.path.exists(csv_path):
                 df = pd.read_csv(csv_path)
