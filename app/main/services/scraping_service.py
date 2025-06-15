@@ -82,7 +82,7 @@ class ScrapingService:
                 yield f"event: cancelled\ndata: 処理がユーザーによって中断されました。\n\n"
                 return
             
-            yield f"event: message\ndata: {len(salon_urls)}件のユニークなサロンURLを収集しました。詳細情報の取得を開始します。\n\n"
+            yield f"event: message\ndata: {len(salon_urls)}件のサロンURLを収集しました。詳細情報の取得を開始します。\n\n"
 
             salon_details = []
             with ThreadPoolExecutor(max_workers=self.config['MAX_WORKERS']) as executor:

@@ -101,42 +101,6 @@ body {
     margin-bottom: 8px;
 }
 
-.select-wrapper {
-    position: relative;
-}
-
-#area-select {
-    width: 100%;
-    padding: 12px 15px;
-    background-color: #fff;
-    color: var(--text-color);
-    border: 1px solid #ccc;
-    border-radius: 8px;
-    font-size: 1rem;
-    appearance: none;
-    -webkit-appearance: none;
-    cursor: pointer;
-    transition: all var(--transition-speed) ease;
-}
-
-#area-select:hover {
-    border-color: var(--primary-color);
-}
-
-.select-wrapper::after {
-    content: '';
-    position: absolute;
-    top: 50%;
-    right: 15px;
-    width: 8px;
-    height: 8px;
-    border-right: 2px solid var(--text-secondary-color);
-    border-bottom: 2px solid var(--text-secondary-color);
-    transform: translateY(-75%) rotate(45deg);
-    pointer-events: none;
-    transition: all var(--transition-speed) ease;
-}
-
 /* --- Custom Search Select --- */
 .custom-select-container {
     position: relative;
