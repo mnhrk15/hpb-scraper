@@ -7,7 +7,9 @@
   "salon_detail": {
     "name": "p.detailTitle a",
     "related_links": "div.mT30.mB20 ul.mT10 a",
-    "phone_page_link": "a[href*='/tel/']"
+    "phone_page_link": "a[href*='/tel/']",
+    "address_label": "住所",
+    "staff_count_label": "スタッフ数"
   },
   "phone_page": {
     "phone_number": "td.fs16.b"

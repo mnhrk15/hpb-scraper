@@ -12,11 +12,11 @@ from .services.scraping_service import ScrapingService
 def index():
     """
     トップページを表示する。
-    データベースからエリア一覧を取得し、都道府県順でソートしてテンプレートに渡す。
+    データベースからエリア一覧を取得し、都道府県ごとにグループ化してテンプレートに渡す。
     """
     db = get_db()
     areas_query = db.execute(
-        text('SELECT id, name, prefecture FROM areas')
+        text('SELECT id, name, prefecture FROM areas ORDER BY name')
     ).mappings().all()
 
     # 47都道府県の地理的順序リスト (JIS X 0401準拠)
@@ -29,15 +29,25 @@ def index():
         '徳島県', '香川県', '愛媛県', '高知県', '福岡県', '佐賀県', '長崎県',
         '熊本県', '大分県', '宮崎県', '鹿児島県', '沖縄県'
     ]
-    prefecture_map = {name: i for i, name in enumerate(prefecture_order)}
 
-    # 取得したデータをリストに変換
-    areas_list = [{'id': area['id'], 'name': area['name'], 'prefecture': area['prefecture']} for area in areas_query]
+    # エリアを都道府県ごとにグループ化
+    areas_by_prefecture = {}
+    for area in areas_query:
+        prefecture = area['prefecture']
+        if prefecture not in areas_by_prefecture:
+            areas_by_prefecture[prefecture] = []
+        areas_by_prefecture[prefecture].append({'id': area['id'], 'name': area['name']})
 
-    # 県の順序を第一キー、エリア名を第二キーとしてソート
-    areas_sorted = sorted(areas_list, key=lambda x: (prefecture_map.get(x['prefecture'], 99), x['name']))
+    # 都道府県の順序でソートされたグループを準備
+    grouped_areas = []
+    for prefecture_name in prefecture_order:
+        if prefecture_name in areas_by_prefecture:
+            grouped_areas.append({
+                'prefecture': prefecture_name,
+                'areas': areas_by_prefecture[prefecture_name]
+            })
 
-    return render_template('index.html', areas=areas_sorted)
+    return render_template('index.html', grouped_areas=grouped_areas)
 
 @bp.route('/scrape')
 def scrape():

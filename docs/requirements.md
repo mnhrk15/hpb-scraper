@@ -94,16 +94,26 @@ graph TD
 単一ページのWebアプリケーションとして実装する。
 
 - **画面構成:**
-    1. **タイトル:** `<h1>HotPepperBeautyサロン情報スクレイピングアプリ</h1>`
-    2. **エリア選択:** `<select>`タグによるドロップダウンリスト。DBから取得したエリア名を表示。
-    3. **実行ボタン:** `<button id="run-button">スクレイピング実行</button>`
-    4. **処理状況表示エリア:** `<div id="status-area"></div>`
-    5. **結果表示エリア:** `<div id="result-area"></div>`
+    1. **ヘッダー:** `<h1>Salon Scraper</h1>`, `<p class="subtitle">...</p>`
+    2. **エリア選択:** 検索機能付きのカスタムセレクトボックス。
+        - エリア検索入力: `<input type="text" id="area-search-input">`
+        - 選択済みエリアID（非表示）: `<input type="hidden" name="area_id" id="selected-area-id">`
+        - エリア選択肢リスト: `<div id="area-options-list">`
+            - 都道府県グループ: `<div class="area-group">`
+            - エリア選択肢: `<div class="area-option">`
+    3. **実行ボタン:** `<button type="submit" id="run-button">スクレイピング実行</button>`
+    4. **処理状況表示カード:** `<div id="status-card">`
+        - タイトル: `<span id="status-title">`
+        - 詳細: `<div id="status-details">`
+        - プログレスバー: `<div id="progress-bar">`
+        - 中止ボタン: `<button id="cancel-button">`
+    5. **結果表示カード:** `<div id="result-card">`
 - **動作仕様:**
-    1. 実行ボタン押下後、ボタンは無効化し、ステータスエリアに「`[選択エリア名] の処理を開始します...`」と表示する。
-    2. 処理の進捗に応じて、ステータスエリアの表示を更新する。（例: 「`サロンURLを収集中...`」、「`サロン詳細情報を取得中 (50/215件)...`」）
-    3. 処理完了後、結果エリアにダウンロードリンク（例: `<a href="/download/...">[ファイル名]をダウンロード</a>`）を表示する。
-    4. エラー発生時には、結果エリアにエラーメッセージを表示する。（例: 「`エラーが発生しました：[エラー内容]`」）
+    1. 実行ボタン押下後、ボタンは無効化（ローディング状態に）し、`status-card`を表示する。
+    2. 処理の進捗に応じて、`status-title`, `status-details`, `progress-bar`の表示を更新する。
+    3. 処理完了後、`result-card`にダウンロードリンクや結果プレビューを表示する。
+    4. エラー発生時には、`result-card`にエラーメッセージを表示する。
+    5. 「処理を中止する」ボタンで実行中のスクレイピングを中断できる。
 
 ### 3.2. データ管理仕様
 
@@ -157,21 +167,19 @@ graph TD
     {
       "area_page": {
         "pagination": "div.preListHead p.pa.bottom0.right0",
-        "salon_list_item": "ul.slnCassetteList > li",
         "salon_url_in_list": "h3.slnName a"
       },
       "salon_detail": {
         "name": "p.detailTitle a",
-        "address": "table.slnDataTbl td[colspan='3']",
-        "staff_count": "table.slnDataTbl td.w208.vaT",
         "related_links": "div.mT30.mB20 ul.mT10 a",
-        "phone_page_link": "a[href*='/tel/']"
+        "phone_page_link": "a[href*='/tel/']",
+        "address_label": "住所",
+        "staff_count_label": "スタッフ数"
       },
       "phone_page": {
         "phone_number": "td.fs16.b"
       }
     }
-    
     ```
     
 
@@ -203,7 +211,7 @@ graph TD
 
 ### 5.1. Excelファイル仕様
 
-- **ファイル名:** `{エリア名}_{YYYYMMDD}.xlsx` （例: `銀座・有楽町_20231027.xlsx`）
+- **ファイル名:** `{エリア名}_{YYYYMMDD_HHMMSS}.xlsx` （例: `銀座・有楽町_20231027_153000.xlsx`）
 - **シート名:** `サロンリスト`
 - **カラム構成と順序:**
     1. `サロン名`

@@ -193,6 +193,23 @@ body {
     display: none;
 }
 
+.area-group {
+    padding: 10px 15px;
+    background-color: #f8f8f8;
+    color: var(--text-secondary-color);
+    font-weight: 600;
+    font-size: 0.9rem;
+    position: sticky;
+    top: 0;
+    z-index: 1; /* Ensures the group header stays above scrolling options */
+    border-bottom: 1px solid var(--border-color);
+    border-top: 1px solid var(--border-color);
+}
+
+.area-group.hidden {
+    display: none;
+}
+
 /* --- Button --- */
 #run-button {
     background: var(--primary-color);

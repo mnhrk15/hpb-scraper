@@ -25,8 +25,11 @@
                             <input type="text" id="area-search-input" placeholder="エリア名で検索・選択..." autocomplete="off">
                             <input type="hidden" name="area_id" id="selected-area-id">
                             <div id="area-options-list" class="area-options-list">
-                                {% for area in areas %}
-                                <div class="area-option" data-value="{{ area.id }}">【{{ area.prefecture }}】{{ area.name }}</div>
+                                {% for group in grouped_areas %}
+                                    <div class="area-group" data-prefecture="{{ group.prefecture }}">{{ group.prefecture }}</div>
+                                    {% for area in group.areas %}
+                                        <div class="area-option" data-value="{{ area.id }}">{{ area.name }}</div>
+                                    {% endfor %}
                                 {% endfor %}
                             </div>
                         </div>

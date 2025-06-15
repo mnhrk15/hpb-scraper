@@ -23,10 +23,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function filterOptions(searchTerm) {
         const lowerCaseSearchTerm = searchTerm.toLowerCase();
-        options.forEach(option => {
-            const areaName = option.textContent.toLowerCase();
-            const isMatch = areaName.includes(lowerCaseSearchTerm);
-            option.classList.toggle('hidden', !isMatch);
+        const groups = optionsList.querySelectorAll('.area-group');
+        
+        groups.forEach(group => {
+            let groupHasVisibleOptions = false;
+            const groupOptions = group.nextElementSibling;
+            
+            // This logic assumes a structure where options for a group immediately follow it.
+            // A more robust implementation might use data attributes to link groups and options.
+            // For now, let's find the options associated with this group.
+            const optionsUnderGroup = [];
+            let nextElement = group.nextElementSibling;
+            while(nextElement && nextElement.classList.contains('area-option')) {
+                optionsUnderGroup.push(nextElement);
+                nextElement = nextElement.nextElementSibling;
+            }
+
+            optionsUnderGroup.forEach(option => {
+                const areaName = option.textContent.toLowerCase();
+                const isMatch = areaName.includes(lowerCaseSearchTerm);
+                option.classList.toggle('hidden', !isMatch);
+                if (isMatch) {
+                    groupHasVisibleOptions = true;
+                }
+            });
+            
+            // A group is visible if its name matches or it has visible options
+            const prefectureName = group.textContent.toLowerCase();
+            const isGroupMatch = prefectureName.includes(lowerCaseSearchTerm);
+            
+            group.classList.toggle('hidden', !isGroupMatch && !groupHasVisibleOptions);
         });
     }
 
@@ -45,7 +71,14 @@ document.addEventListener('DOMContentLoaded', () => {
         selectedOption = option;
         selectedOption.classList.add('selected');
         
-        searchInput.value = option.textContent;
+        // Find the preceding group to get the prefecture
+        let precedingGroup = option.previousElementSibling;
+        while(precedingGroup && !precedingGroup.classList.contains('area-group')) {
+            precedingGroup = precedingGroup.previousElementSibling;
+        }
+        const prefecture = precedingGroup ? precedingGroup.textContent : '';
+
+        searchInput.value = `【${prefecture}】${option.textContent}`;
         selectedAreaIdInput.value = option.dataset.value;
     }
 

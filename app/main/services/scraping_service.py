@@ -252,14 +252,15 @@ class ScrapingService:
         return {
             'サロン名': get_text(self.selectors['salon_detail']['name']),
             '電話番号': phone_number,
-            '住所': self._get_value_by_th_text(soup, '住所'),
-            'スタッフ数': self._get_value_by_th_text(soup, 'スタッフ数'),
+            '住所': self._get_value_by_th_text(soup, self.selectors['salon_detail']['address_label']),
+            'スタッフ数': self._get_value_by_th_text(soup, self.selectors['salon_detail']['staff_count_label']),
             '関連リンク': "\n".join(related_links),
             '関連リンク数': len(related_links),
             'サロンURL': salon_url.split('?')[0],
         }
 
     def _scrape_phone_number(self, phone_page_url, job_id):
+        """電話番号が掲載されている別ページから電話番号を取得"""
         response = self._make_request(phone_page_url, job_id)
         if not response: return ''
         soup = BeautifulSoup(response.text, 'html.parser')
@@ -270,18 +271,22 @@ class ScrapingService:
         if not data:
             self.logger.warning("No data scraped, creating an empty Excel file.")
         
+        # タイムスタンプをファイル名に追加
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        safe_area_name = re.sub(r'[\\/*?:"<>|]', "", area_name)
+        file_name = f"{safe_area_name}_{timestamp}.xlsx"
+        
+        output_path = os.path.join(self.config['OUTPUT_DIR'], file_name)
+        
+        # ディレクトリが存在しない場合は作成
+        os.makedirs(self.config['OUTPUT_DIR'], exist_ok=True)
+        
         df = pd.DataFrame(data)
         columns_order = ['サロン名', '電話番号', '住所', 'スタッフ数', '関連リンク', '関連リンク数', 'サロンURL']
         for col in columns_order:
             if col not in df.columns:
-                df[col] = ''
+                df[col] = None
         df = df[columns_order]
 
-        safe_area_name = re.sub(r'[\\/*?:"<>|]', '_', area_name)
-        file_name = f"{safe_area_name}_{datetime.now().strftime('%Y%m%d')}.xlsx"
-        output_dir = 'output'
-        os.makedirs(output_dir, exist_ok=True)
-        file_path = os.path.join(output_dir, file_name)
-        
-        df.to_excel(file_path, index=False, sheet_name='サロンリスト')
+        df.to_excel(output_path, index=False, sheet_name='サロンリスト')
         return file_name
