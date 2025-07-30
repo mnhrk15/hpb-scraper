@@ -22,6 +22,12 @@ class ScrapingService:
         self.config = current_app.config
         self.selectors = self._load_selectors()
         self.session = requests.Session()
+        
+        # User-Agentを設定
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+        })
+        
         self.instance_path = current_app.instance_path
         self.logger = current_app.logger
         
