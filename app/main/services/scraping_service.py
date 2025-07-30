@@ -134,13 +134,42 @@ class ScrapingService:
                 yield f"event: cancelled\ndata: 処理がユーザーによって中断されました。\n\n"
                 return
 
-            yield f"event: message\ndata: {len(salon_details)}件の詳細情報を取得しました。Excelファイルを生成します。\n\n"
+            yield f"event: message\ndata: {len(salon_details)}件の詳細情報を取得しました。データを処理してExcelファイルを生成します。\n\n"
             
-            preview_data = salon_details[:5]
-            file_name = self._create_excel_file(salon_details, area_info['name'])
+            # DataFrameに変換
+            df = pd.DataFrame(salon_details)
+            
+            # 重複削除: 電話番号とサロンURLをキーとする
+            if not df.empty:
+                df_before_dedup = df.copy()
+                df = df.drop_duplicates(subset=['電話番号', 'サロンURL'], keep='first')
+                removed_count = len(df_before_dedup) - len(df)
+                if removed_count > 0:
+                    yield f"event: message\ndata: 重複店舗 {removed_count}件を削除しました。\n\n"
+            
+            # データ分割
+            df_target = df[df['is_excluded'] == False].copy() if not df.empty else pd.DataFrame()
+            df_excluded = df[df['is_excluded'] == True].copy() if not df.empty else pd.DataFrame()
+            
+            yield f"event: message\ndata: 営業対象: {len(df_target)}件、除外対象: {len(df_excluded)}件に分類しました。\n\n"
+            
+            # Excelファイル生成
+            file_name = self._create_target_excel_file(df_target, area_info['name'])
+            excluded_file_name = None
+            if not df_excluded.empty:
+                excluded_file_name = self._create_excluded_excel_file(df_excluded, area_info['name'])
+                yield f"event: message\ndata: 除外リストも生成しました。\n\n"
+            
+            # プレビューデータは営業対象リストから生成
+            preview_data = df_target.head(5).to_dict('records') if not df_target.empty else []
+            # is_excluded と exclusion_reason をプレビューデータから除去
+            for item in preview_data:
+                item.pop('is_excluded', None)
+                item.pop('exclusion_reason', None)
             
             result_payload = {
                 'file_name': file_name,
+                'excluded_file_name': excluded_file_name,
                 'preview_data': preview_data
             }
             yield f"event: result\ndata: {json.dumps(result_payload)}\n\n"
@@ -273,14 +302,86 @@ class ScrapingService:
         related_links_elements = soup.select(self.selectors['salon_detail']['related_links'])
         related_links = [link['href'] for link in related_links_elements if 'href' in link.attrs]
 
+        staff_count_text = self._get_value_by_th_text(soup, self.selectors['salon_detail']['staff_count_label'])
+        salon_name = get_text(self.selectors['salon_detail']['name'])
+        address = self._get_value_by_th_text(soup, self.selectors['salon_detail']['address_label'])
+        clean_salon_url = salon_url.split('?')[0]
+
+        # 除外条件判定
+        exclusion_reasons = []
+        
+        # EPRP店舗判定: 特集セクションが存在しない場合
+        special_feature_element = soup.select_one(self.selectors['salon_detail']['special_feature_section'])
+        is_eprp = special_feature_element is None
+        if is_eprp:
+            exclusion_reasons.append("EPRP")
+        
+        # エステ/リラク店舗判定: URLに/kr/が含まれる場合
+        # 例: https://beauty.hotpepper.jp/kr/slnH000169389/
+        is_este_relax = '/kr/' in clean_salon_url or '/kr/' in salon_url
+        if is_este_relax:
+            exclusion_reasons.append("エステ/リラク")
+        
+        # 電話番号なし判定
+        is_no_phone = not phone_number or phone_number.strip() == ''
+        if is_no_phone:
+            exclusion_reasons.append("電話番号なし")
+        
+        # スタッフ数判定: 「スタイリスト1人」かつ「アシスタントなし」の店舗を除外
+        is_single_stylist_no_assistant = False
+        if staff_count_text:
+            # デバッグ用: スタッフ数テキストをログに出力
+            self.logger.debug(f"スタッフ数テキスト: '{staff_count_text}' (サロン: {salon_name})")
+            
+            # スタイリスト1人(名)の様々なパターンをチェック
+            # 実際のデータ: 「スタイリスト1人」
+            stylist_patterns = [
+                r'スタイリスト\s*[：:]\s*1\s*[人名]',   # スタイリスト：1人、スタイリスト：1名
+                r'スタイリスト\s+1\s*[人名]',           # スタイリスト 1人、スタイリスト 1名
+                r'スタイリスト1[人名]',                  # スタイリスト1人、スタイリスト1名 (スペースなし)
+                r'スタイリスト\s*1\s*[人名]'            # スタイリスト1人、スタイリスト 1 人 (柔軟なスペース対応)
+            ]
+            
+            stylist_match = False
+            matched_pattern = None
+            for pattern in stylist_patterns:
+                if re.search(pattern, staff_count_text):
+                    stylist_match = True
+                    matched_pattern = pattern
+                    break
+            
+            # アシスタントが含まれているかチェック
+            has_assistant = 'アシスタント' in staff_count_text
+            
+            # デバッグ用ログ
+            if stylist_match:
+                self.logger.debug(f"スタイリスト1人マッチ: パターン={matched_pattern}, アシスタント有無={has_assistant} (サロン: {salon_name})")
+            
+            # スタイリスト1人かつアシスタントなしの場合のみ除外
+            if stylist_match and not has_assistant:
+                is_single_stylist_no_assistant = True
+                exclusion_reasons.append("スタッフ数")
+                self.logger.debug(f"スタッフ数で除外: {salon_name}")
+        
+        # 関連リンク数判定: 4以上の場合
+        is_many_links = len(related_links) >= 4
+        if is_many_links:
+            exclusion_reasons.append("関連リンク数")
+        
+        # 総合判定
+        is_excluded = len(exclusion_reasons) > 0
+        exclusion_reason = ', '.join(exclusion_reasons) if is_excluded else ''
+
         return {
-            'サロン名': get_text(self.selectors['salon_detail']['name']),
+            'サロン名': salon_name,
             '電話番号': phone_number,
-            '住所': self._get_value_by_th_text(soup, self.selectors['salon_detail']['address_label']),
-            'スタッフ数': self._get_value_by_th_text(soup, self.selectors['salon_detail']['staff_count_label']),
+            '住所': address,
+            'スタッフ数': staff_count_text,
             '関連リンク': "\n".join(related_links),
             '関連リンク数': len(related_links),
-            'サロンURL': salon_url.split('?')[0],
+            'サロンURL': clean_salon_url,
+            'is_excluded': is_excluded,
+            'exclusion_reason': exclusion_reason,
         }
 
     def _scrape_phone_number(self, phone_page_url, job_id):
@@ -291,10 +392,8 @@ class ScrapingService:
         phone_element = soup.select_one(self.selectors['phone_page']['phone_number'])
         return phone_element.text.strip() if phone_element else ''
 
-    def _create_excel_file(self, data, area_name):
-        if not data:
-            self.logger.warning("No data scraped, creating an empty Excel file.")
-        
+    def _create_target_excel_file(self, df_target, area_name):
+        """営業対象リストのExcelファイルを作成"""
         # タイムスタンプをファイル名に追加
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         safe_area_name = re.sub(r'[\\/*?:"<>|]', "", area_name)
@@ -305,12 +404,51 @@ class ScrapingService:
         # ディレクトリが存在しない場合は作成
         os.makedirs(self.config['OUTPUT_DIR'], exist_ok=True)
         
-        df = pd.DataFrame(data)
-        columns_order = ['サロン名', '電話番号', '住所', 'スタッフ数', '関連リンク', '関連リンク数', 'サロンURL']
-        for col in columns_order:
-            if col not in df.columns:
-                df[col] = None
-        df = df[columns_order]
+        if df_target.empty:
+            # 空のDataFrameでもカラム構造を維持
+            columns_order = ['サロン名', '電話番号', '住所', 'スタッフ数', '関連リンク', '関連リンク数', 'サロンURL']
+            df_target = pd.DataFrame(columns=columns_order)
+        else:
+            # 既存のカラム構成と順序を完全に維持（is_excluded、exclusion_reasonは除外）
+            columns_order = ['サロン名', '電話番号', '住所', 'スタッフ数', '関連リンク', '関連リンク数', 'サロンURL']
+            # 存在しないカラムは空で追加
+            for col in columns_order:
+                if col not in df_target.columns:
+                    df_target[col] = None
+            df_target = df_target[columns_order]
 
-        df.to_excel(output_path, index=False, sheet_name='サロンリスト')
+        df_target.to_excel(output_path, index=False, sheet_name='サロンリスト')
+        return file_name
+    
+    def _create_excluded_excel_file(self, df_excluded, area_name):
+        """除外リストのExcelファイルを作成"""
+        # タイムスタンプをファイル名に追加
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        safe_area_name = re.sub(r'[\\/*?:"<>|]', "", area_name)
+        file_name = f"除外リスト_{safe_area_name}_{timestamp}.xlsx"
+        
+        output_path = os.path.join(self.config['OUTPUT_DIR'], file_name)
+        
+        # ディレクトリが存在しない場合は作成
+        os.makedirs(self.config['OUTPUT_DIR'], exist_ok=True)
+        
+        if not df_excluded.empty:
+            # exclusion_reasonを先頭に配置したカラム構成
+            columns_order = ['exclusion_reason', 'サロン名', '電話番号', '住所', 'スタッフ数', '関連リンク', '関連リンク数', 'サロンURL']
+            
+            # カラム名を日本語に変更
+            df_excluded = df_excluded.rename(columns={'exclusion_reason': '除外理由'})
+            columns_order[0] = '除外理由'  # カラム順序も更新
+            
+            # 存在しないカラムは空で追加
+            for col in columns_order:
+                if col not in df_excluded.columns:
+                    df_excluded[col] = None
+            df_excluded = df_excluded[columns_order]
+        else:
+            # 空のDataFrameでもカラム構造を維持
+            columns_order = ['除外理由', 'サロン名', '電話番号', '住所', 'スタッフ数', '関連リンク', '関連リンク数', 'サロンURL']
+            df_excluded = pd.DataFrame(columns=columns_order)
+
+        df_excluded.to_excel(output_path, index=False, sheet_name='除外リスト')
         return file_name

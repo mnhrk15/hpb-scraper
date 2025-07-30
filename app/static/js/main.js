@@ -195,7 +195,7 @@ document.addEventListener('DOMContentLoaded', () => {
         resultCard.style.display = 'none'; // Clear previous results/errors first
 
         if (!selectedAreaIdInput.value) {
-            showResultCard(false, '入力エラー', 'エリアを選択してください。');
+            showResultCard(false, '入力エラー', 'エリアを選択してください。', null, null, null);
             return;
         }
 
@@ -255,13 +255,16 @@ document.addEventListener('DOMContentLoaded', () => {
         eventSource.addEventListener('result', (e) => {
             const result = JSON.parse(e.data);
             statusCard.style.display = 'none';
-            showResultCard(true, `処理が正常に完了しました。`, `ファイル名: ${result.file_name}`, result.file_name, result.preview_data);
+            const message = result.excluded_file_name 
+                ? `ファイル名: ${result.file_name}<br>除外リストも生成されました。`
+                : `ファイル名: ${result.file_name}`;
+            showResultCard(true, `処理が正常に完了しました。`, message, result.file_name, result.excluded_file_name, result.preview_data);
             resetUI();
         });
 
         eventSource.addEventListener('cancelled', (e) => {
             statusCard.style.display = 'none';
-            showResultCard(false, '処理が中断されました', e.data, null, null);
+            showResultCard(false, '処理が中断されました', e.data, null, null, null);
             resetUI();
         });
 
@@ -285,7 +288,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (parseError) { /* ignore */ }
             
             statusCard.style.display = 'none';
-            showResultCard(false, 'エラーが発生しました', errorMessage, null, null);
+            showResultCard(false, 'エラーが発生しました', errorMessage, null, null, null);
             resetUI();
         };
     });
@@ -308,7 +311,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    function showResultCard(isSuccess, title, message, fileName, previewData) {
+    function showResultCard(isSuccess, title, message, fileName, excludedFileName, previewData) {
         let previewHtml = '';
         if (isSuccess && previewData && previewData.length > 0) {
             const headers = Object.keys(previewData[0]);
@@ -336,6 +339,15 @@ document.addEventListener('DOMContentLoaded', () => {
             `;
         }
 
+        // ダウンロードリンクの生成
+        let downloadLinksHtml = '';
+        if (fileName) {
+            downloadLinksHtml += `<a href="/download/${fileName}" class="download-link">営業対象リストをダウンロード</a>`;
+        }
+        if (excludedFileName) {
+            downloadLinksHtml += `<a href="/download/${excludedFileName}" class="download-link excluded-download-link">除外リストをダウンロード</a>`;
+        }
+
         resultCard.innerHTML = `
             <div class="result-icon ${isSuccess ? 'success' : 'error'}">
                 <svg viewBox="0 0 24 24" class="${isSuccess ? 'success-icon' : 'error-icon'}">
@@ -347,7 +359,7 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
             <h2 class="result-title">${title}</h2>
             <p class="result-message">${message}</p>
-            ${fileName ? `<a href="/download/${fileName}" class="download-link">ファイルをダウンロード</a>` : ''}
+            ${downloadLinksHtml}
             ${previewHtml}
         `;
         resultCard.style.display = 'flex';
