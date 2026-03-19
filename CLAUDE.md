@@ -4,75 +4,79 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Essential Commands
 
-### Development Setup
 ```bash
-# Create and activate virtual environment
-python3 -m venv .venv
-source .venv/bin/activate  # macOS/Linux
-# .venv\Scripts\activate   # Windows
-
-# Install dependencies
+# Setup
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+flask init-db          # Loads data/area.csv into SQLite
 
-# Initialize database with area data
-flask init-db
-```
+# Development
+flask run              # http://127.0.0.1:5000
 
-### Running the Application
-```bash
-# Development server
-flask run
-
-# Production server (recommended)
+# Production
 gunicorn --workers 4 --bind 0.0.0.0:8000 wsgi:app
-```
 
-### Build and Deployment
-```bash
-# Build script for Render deployment
+# Deployment (Render)
 ./build.sh
 ```
 
-## Architecture Overview
+No tests exist in this project.
 
-This is a Flask-based web scraper for HotPepper Beauty salon data with the following key components:
+## Important Constraints
 
-### Core Structure
-- **Flask Application Factory**: `app/__init__.py` creates the app instance with configuration from `config.py`
-- **Blueprint-based Routes**: Main routes in `app/main/routes.py` handle web interface and API endpoints
-- **Database Layer**: SQLite/PostgreSQL abstraction in `app/db.py` with SQLAlchemy
-- **Scraping Engine**: `app/main/services/scraping_service.py` handles concurrent web scraping with progress tracking
+- **UI/UXデザインの変更は禁止**: レイアウト、色、フォント、間隔等の変更は事前承認が必要
+- **技術スタックのバージョン変更禁止**: requirements.txtのライブラリバージョンを勝手に変更しない
+- **明示的に指示されていない変更は行わない**: 必要と思われる変更がある場合は提案として報告し承認を得てから実施
 
-### Key Features
-- **Area-based Scraping**: Scrapes salon data by geographic area (prefecture/city)
-- **Real-time Progress**: Server-Sent Events (SSE) for live scraping progress updates
-- **Concurrent Processing**: ThreadPoolExecutor for parallel salon detail fetching
-- **Cancellation Support**: Job cancellation via signal files in instance directory
-- **Excel Export**: Pandas + OpenPyXL for structured data output
+## Architecture
 
-### Configuration
-- Environment-based config via `.env` file and `config.py`
-- Key settings: `MAX_WORKERS`, `REQUEST_WAIT_SECONDS`, `RETRY_COUNT`
-- Database URI auto-detection (PostgreSQL for production, SQLite for local)
+Flask application factory pattern (`app/__init__.py`) with a single blueprint (`app/main/`).
 
-### Data Flow
-1. User selects area from database-populated dropdown
-2. Scraping service fetches salon list pages with pagination
-3. Concurrent workers extract detailed info from each salon page
-4. Progress updates sent via SSE to frontend
-5. Results exported to timestamped Excel file
+### Backend Flow
+1. `app/main/routes.py` — 4 endpoints: index (`/`), scrape (`/scrape`), cancel (`/scrape/cancel`), download (`/download/<filename>`)
+2. `app/main/services/scraping_service.py` — `ScrapingService` class, the core scraping engine (~460 lines)
+3. `app/db.py` — SQLAlchemy engine, `areas` table (id, prefecture, name, url), `flask init-db` CLI command
+4. `config.py` — All settings from `.env`: `MAX_WORKERS`(5), `REQUEST_WAIT_SECONDS`(1), `RETRY_COUNT`(3)
 
-### CSS Selectors Configuration
-The `selectors.json` file contains all web scraping selectors for:
-- Area page pagination and salon listing
-- Salon detail page data extraction (name, phone, address, staff count)
-- Phone number page parsing
+### Frontend (Single Page)
+- `app/templates/index.html` — Single-page UI structure
+- `app/static/js/main.js` — Custom searchable select component + SSE event handling (~380 lines)
+- `app/static/css/style.css` — Vanilla CSS with CSS variables (~460 lines)
 
-### Database Schema
-- `areas` table: Geographic regions for scraping (populated from `data/area.csv`)
-- Uses Flask-SQLAlchemy with raw SQL queries for performance
+### SSE Event Protocol
+The `/scrape` endpoint streams Server-Sent Events to the frontend. Event types:
+- `job_id` — Job identifier for cancellation
+- `message` — Status text updates
+- `url_progress` — `{current, total}` during URL collection phase
+- `progress` — `{current, total}` during detail fetching phase
+- `result` — `{file_name, excluded_file_name, preview_data}` on completion
+- `cancelled` — Job was cancelled by user
+- `error` — `{error: message}` on failure
+
+### Job Cancellation Mechanism
+Signal file-based: POST `/scrape/cancel` creates `{job_id}.cancel` in `instance/` directory with a timestamp. The scraping service periodically checks for this file and stops gracefully. Stale files are cleaned up on app startup (`CANCEL_FILE_TIMEOUT_SECONDS`).
+
+### Scraping Engine Details
+`ScrapingService.run_scraping()` is a generator that yields SSE events:
+1. Fetch area URL from DB → parse pagination for total pages
+2. Collect salon URLs from all list pages (parallel via ThreadPoolExecutor)
+3. Fetch each salon's detail page + phone number page (parallel)
+4. Apply exclusion filters → split into target/excluded DataFrames
+5. Generate two Excel files: `{area}_{timestamp}.xlsx` (targets) and `除外リスト_{area}_{timestamp}.xlsx` (excluded)
+
+### Exclusion Business Logic
+Salons are excluded (with reason logged) if ANY of these conditions are true:
+- **EPRP**: `#jsiSpecialFeatureCarousel` element is absent on detail page
+- **エステ/リラク**: Salon URL contains `/kr/`
+- **電話番号なし**: No phone number found
+- **スタッフ数**: Stylist count is exactly 1 AND no assistant mentioned
+- **関連リンク数**: 4 or more related links
+
+### CSS Selectors
+All scraping selectors are externalized in `selectors.json` (area page, salon detail, phone page). When the target site's HTML structure changes, update this file rather than modifying scraping code.
+
+### WSGI / Gevent
+`wsgi.py` applies `gevent.monkey.patch_all()` **before** importing Flask. This is required for async I/O with gunicorn workers. Do not reorder these imports.
 
 ### Deployment
-- **WSGI Entry**: `wsgi.py` with gevent monkey patching for async support
-- **Build Script**: `build.sh` handles dependency installation and database initialization
-- **Instance Directory**: Used for SQLite database and job cancellation signals
+Render.com with PostgreSQL. `config.py` auto-detects `DATABASE_URL` env var (converts `postgres://` to `postgresql://` for SQLAlchemy). Falls back to local SQLite at `instance/app.db`.
