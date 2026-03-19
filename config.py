@@ -47,4 +47,8 @@ if not DATABASE_URI:
 # 初期データCSVパス
 AREA_CSV_PATH = os.getenv('AREA_CSV_PATH', 'data/area.csv')
 # 出力ディレクトリ
-OUTPUT_DIR = os.getenv('OUTPUT_DIR', 'output') 
+OUTPUT_DIR = os.getenv('OUTPUT_DIR', 'output')
+
+# Serper API設定 (Instagram検索機能)
+SERPER_API_KEY = os.getenv('SERPER_API_KEY', '')
+INSTAGRAM_MAX_URLS = _get_env_as_int('INSTAGRAM_MAX_URLS', 3)

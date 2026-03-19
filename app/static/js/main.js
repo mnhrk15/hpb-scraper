@@ -2,6 +2,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const scrapeForm = document.getElementById('scrape-form');
     const runButton = document.getElementById('run-button');
 
+    // Instagram検索機能の利用可否を確認
+    let instagramSearchAvailable = false;
+    fetch('/api/instagram-search-available')
+        .then(res => res.json())
+        .then(data => { instagramSearchAvailable = data.available; })
+        .catch(() => { instagramSearchAvailable = false; });
+
     // Custom select-box logic
     const customSelectContainer = document.getElementById('custom-select-container');
     const formCard = customSelectContainer.closest('.card'); // Get the parent card for z-index control
@@ -351,8 +358,8 @@ document.addEventListener('DOMContentLoaded', () => {
         resultCard.innerHTML = `
             <div class="result-icon ${isSuccess ? 'success' : 'error'}">
                 <svg viewBox="0 0 24 24" class="${isSuccess ? 'success-icon' : 'error-icon'}">
-                    ${isSuccess 
-                        ? '<path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>' 
+                    ${isSuccess
+                        ? '<path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>'
                         : '<path d="M11 15h2v2h-2zm0-8h2v6h-2zm.99-5C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8z"/>'
                     }
                 </svg>
@@ -362,6 +369,22 @@ document.addEventListener('DOMContentLoaded', () => {
             ${downloadLinksHtml}
             ${previewHtml}
         `;
+
+        // Instagram検索ボタン（DOM APIで属性を設定しXSSを防止）
+        if (instagramSearchAvailable && fileName) {
+            const igButton = document.createElement('button');
+            igButton.className = 'instagram-search-button';
+            igButton.setAttribute('data-target-file', fileName);
+            igButton.textContent = 'Instagram検索を実行';
+            // ダウンロードリンクの後、プレビューの前に挿入
+            const previewContainer = resultCard.querySelector('.preview-container');
+            if (previewContainer) {
+                resultCard.insertBefore(igButton, previewContainer);
+            } else {
+                resultCard.appendChild(igButton);
+            }
+        }
+
         resultCard.style.display = 'flex';
         resultCard.style.animation = 'fadeInUp 0.5s ease-out forwards';
     }
@@ -372,5 +395,140 @@ document.addEventListener('DOMContentLoaded', () => {
         runButton.classList.remove('loading');
         cancelButton.style.display = 'none';
         currentJobId = null;
+    }
+
+    // --- Instagram検索機能 ---
+    resultCard.addEventListener('click', (e) => {
+        const button = e.target.closest('.instagram-search-button');
+        if (!button) return;
+        startInstagramSearch(button.dataset.targetFile);
+    });
+
+    function startInstagramSearch(targetFile) {
+        // ボタンを無効化
+        const igButton = resultCard.querySelector('.instagram-search-button');
+        if (igButton) {
+            igButton.disabled = true;
+            igButton.textContent = 'Instagram検索中...';
+        }
+
+        // ステータスカードを表示
+        statusCard.style.display = 'flex';
+        statusCard.style.animation = 'fadeInUp 0.5s ease-out forwards';
+        statusTitle.textContent = 'Instagram検索中';
+        statusDetails.textContent = 'サーバーとの接続を確立しています。';
+        progressBar.style.width = '0%';
+        cancelButton.style.display = 'block';
+        cancelButton.disabled = false;
+
+        let igJobId = null;
+        const igEventSource = new EventSource(`/instagram-search?target_file=${encodeURIComponent(targetFile)}`);
+
+        igEventSource.addEventListener('job_id', (e) => {
+            igJobId = e.data;
+            currentJobId = igJobId;
+        });
+
+        igEventSource.addEventListener('message', (e) => {
+            statusDetails.textContent = e.data;
+        });
+
+        igEventSource.addEventListener('progress', (e) => {
+            const progress = JSON.parse(e.data);
+            statusTitle.textContent = 'Instagram検索中';
+            statusDetails.textContent = `Instagram検索を実行しています... (${progress.current}/${progress.total}件)`;
+            if (progress.total > 0) {
+                progressBar.style.width = `${(progress.current / progress.total) * 100}%`;
+            }
+        });
+
+        igEventSource.addEventListener('result', (e) => {
+            const result = JSON.parse(e.data);
+            statusCard.style.display = 'none';
+            cancelButton.style.display = 'none';
+            currentJobId = null;
+            igEventSource.close();
+            appendInstagramResult(result);
+        });
+
+        igEventSource.addEventListener('cancelled', (e) => {
+            statusCard.style.display = 'none';
+            cancelButton.style.display = 'none';
+            currentJobId = null;
+            igEventSource.close();
+            // ボタンを再有効化
+            if (igButton) {
+                igButton.disabled = false;
+                igButton.textContent = 'Instagram検索を実行';
+            }
+        });
+
+        igEventSource.addEventListener('error', (e) => {
+            let errorMessage = 'Instagram検索中にエラーが発生しました。';
+            try {
+                if (e.data) {
+                    const errorData = JSON.parse(e.data);
+                    if (errorData.error) {
+                        errorMessage = errorData.error;
+                    }
+                }
+            } catch (parseError) { /* ignore */ }
+
+            statusCard.style.display = 'none';
+            cancelButton.style.display = 'none';
+            currentJobId = null;
+            igEventSource.close();
+            // ボタンをエラー状態で表示
+            if (igButton) {
+                igButton.disabled = false;
+                igButton.textContent = 'Instagram検索を実行';
+            }
+            // エラーメッセージをボタンの下に表示
+            const existingError = resultCard.querySelector('.instagram-error');
+            if (existingError) existingError.remove();
+            const errorDiv = document.createElement('p');
+            errorDiv.className = 'instagram-error';
+            errorDiv.style.color = 'var(--text-secondary-color)';
+            errorDiv.style.fontSize = '0.9rem';
+            errorDiv.textContent = errorMessage;
+            if (igButton) igButton.after(errorDiv);
+        });
+
+        igEventSource.onerror = () => {
+            // SSE接続エラー（サーバーダウン等）
+            if (igJobId && cancelButton.disabled) {
+                igEventSource.close();
+                return;
+            }
+            statusCard.style.display = 'none';
+            cancelButton.style.display = 'none';
+            currentJobId = null;
+            igEventSource.close();
+            if (igButton) {
+                igButton.disabled = false;
+                igButton.textContent = 'Instagram検索を実行';
+            }
+        };
+    }
+
+    function appendInstagramResult(result) {
+        const igButton = resultCard.querySelector('.instagram-search-button');
+        if (igButton) {
+            const div = document.createElement('div');
+            div.className = 'instagram-result';
+
+            const msg = document.createElement('p');
+            msg.className = 'instagram-result-message';
+            msg.textContent = `Instagram検索完了: ${result.found_count}/${result.total_salons}件でURLが見つかりました`;
+
+            const link = document.createElement('a');
+            link.href = `/download/${encodeURIComponent(result.file_name)}`;
+            link.className = 'download-link instagram-download-link';
+            link.textContent = 'Instagram検索結果をダウンロード';
+
+            div.appendChild(msg);
+            div.appendChild(link);
+            igButton.replaceWith(div);
+        }
     }
 }); 

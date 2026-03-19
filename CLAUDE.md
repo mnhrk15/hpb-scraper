@@ -20,7 +20,14 @@ gunicorn --workers 4 --bind 0.0.0.0:8000 wsgi:app
 ./build.sh
 ```
 
-No tests exist in this project.
+## Testing
+
+```bash
+pip install pytest
+python -m pytest tests/ -v
+```
+
+Tests cover the Instagram search feature (`tests/test_instagram_service.py`, `tests/test_routes.py`).
 
 ## Important Constraints
 
@@ -33,10 +40,11 @@ No tests exist in this project.
 Flask application factory pattern (`app/__init__.py`) with a single blueprint (`app/main/`).
 
 ### Backend Flow
-1. `app/main/routes.py` — 4 endpoints: index (`/`), scrape (`/scrape`), cancel (`/scrape/cancel`), download (`/download/<filename>`)
+1. `app/main/routes.py` — 7 endpoints: index (`/`), scrape (`/scrape`), cancel (`/scrape/cancel`), download (`/download/<filename>`), instagram-search-available (`/api/instagram-search-available`), instagram-search (`/instagram-search`)
 2. `app/main/services/scraping_service.py` — `ScrapingService` class, the core scraping engine (~460 lines)
 3. `app/db.py` — SQLAlchemy engine, `areas` table (id, prefecture, name, url), `flask init-db` CLI command
-4. `config.py` — All settings from `.env`: `MAX_WORKERS`(5), `REQUEST_WAIT_SECONDS`(1), `RETRY_COUNT`(3)
+4. `config.py` — All settings from `.env`: `MAX_WORKERS`(5), `REQUEST_WAIT_SECONDS`(1), `RETRY_COUNT`(3), `SERPER_API_KEY`, `INSTAGRAM_MAX_URLS`(3)
+5. `app/main/services/instagram_service.py` — `InstagramSearchService` class, Serper.dev API integration for Instagram URL search
 
 ### Frontend (Single Page)
 - `app/templates/index.html` — Single-page UI structure
@@ -52,6 +60,17 @@ The `/scrape` endpoint streams Server-Sent Events to the frontend. Event types:
 - `result` — `{file_name, excluded_file_name, preview_data}` on completion
 - `cancelled` — Job was cancelled by user
 - `error` — `{error: message}` on failure
+
+The `/instagram-search` endpoint streams SSE events with the same protocol. Additional result fields:
+- `result` — `{file_name, total_salons, found_count}` on completion
+
+### Instagram Search Feature
+- Triggered manually after scraping completes via "Instagram検索" button
+- Uses Serper.dev Google Search API (`SERPER_API_KEY` in `.env`)
+- Reads salon names from target list Excel file (stateless design)
+- Searches `{サロン名} Instagram` and filters results for instagram.com URLs (up to 3 per salon)
+- Results exported to separate Excel: `Instagram_{area}_{timestamp}.xlsx`
+- Reuses existing cancellation mechanism (signal file-based)
 
 ### Job Cancellation Mechanism
 Signal file-based: POST `/scrape/cancel` creates `{job_id}.cancel` in `instance/` directory with a timestamp. The scraping service periodically checks for this file and stops gracefully. Stale files are cleaned up on app startup (`CANCEL_FILE_TIMEOUT_SECONDS`).

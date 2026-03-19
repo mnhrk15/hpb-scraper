@@ -8,6 +8,7 @@ import time
 from . import bp
 from ..db import get_db
 from .services.scraping_service import ScrapingService
+from .services.instagram_service import InstagramSearchService
 
 @bp.route('/')
 def index():
@@ -104,6 +105,45 @@ def scrape_cancel():
     except IOError as e:
         current_app.logger.error(f"Error creating cancel file for job {job_id}: {e}")
         return jsonify({'status': 'error', 'message': 'Failed to signal cancellation'}), 500
+
+@bp.route('/api/instagram-search-available')
+def instagram_search_available():
+    api_key = current_app.config.get('SERPER_API_KEY', '')
+    return jsonify({'available': bool(api_key)})
+
+@bp.route('/instagram-search')
+def instagram_search():
+    target_file = request.args.get('target_file')
+    app = current_app._get_current_object()
+    job_id = uuid.uuid4().hex
+
+    if not target_file:
+        def error_generator():
+            yield 'event: error\ndata: {"error": "対象ファイルが指定されていません。"}\n\n'
+        return Response(error_generator(), mimetype='text/event-stream')
+
+    # パストラバーサル対策: ファイル名のみを許可
+    safe_filename = os.path.basename(target_file)
+    if safe_filename != target_file:
+        def error_generator():
+            yield 'event: error\ndata: {"error": "無効なファイル名です。"}\n\n'
+        return Response(error_generator(), mimetype='text/event-stream')
+
+    def stream_with_context(app_context, file_name_param, job_id_param):
+        cancel_file = os.path.join(app_context.instance_path, f"{job_id_param}.cancel")
+        try:
+            with app_context.app_context():
+                yield f"event: job_id\ndata: {job_id_param}\n\n"
+                service = InstagramSearchService()
+                yield from service.run_instagram_search(file_name_param, job_id_param)
+        finally:
+            if os.path.exists(cancel_file):
+                try:
+                    os.remove(cancel_file)
+                except OSError as e:
+                    app_context.logger.error(f"Error removing cancel file {cancel_file}: {e}")
+
+    return Response(stream_with_context(app, safe_filename, job_id), mimetype='text/event-stream')
 
 @bp.route('/download/<path:filename>')
 def download(filename):
