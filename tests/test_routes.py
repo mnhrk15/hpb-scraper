@@ -77,3 +77,42 @@ class TestInstagramSearchEndpoint:
             content_type='application/json',
         )
         assert resp.status_code == 400
+
+
+class TestScrapeEndpointFreeword:
+    def test_freeword_passed_to_service(self, client):
+        """freewordパラメータがrun_scrapingの第3引数として渡される。"""
+        with patch('app.main.routes.ScrapingService') as MockService:
+            instance = MockService.return_value
+            instance.run_scraping.return_value = iter([
+                'event: message\ndata: done\n\n',
+            ])
+            resp = client.get('/scrape?area_id=1&freeword=髪質改善')
+            resp.get_data(as_text=True)  # ストリームを消費してジェネレータを実行
+
+            instance.run_scraping.assert_called_once()
+            args = instance.run_scraping.call_args.args
+            assert args[0] == '1'          # area_id
+            assert args[2] == '髪質改善'    # freeword
+
+    def test_no_freeword_passes_none(self, client):
+        """freeword未指定時はrun_scrapingの第3引数がNone（後方互換）。"""
+        with patch('app.main.routes.ScrapingService') as MockService:
+            instance = MockService.return_value
+            instance.run_scraping.return_value = iter([
+                'event: message\ndata: done\n\n',
+            ])
+            resp = client.get('/scrape?area_id=1')
+            resp.get_data(as_text=True)
+
+            instance.run_scraping.assert_called_once()
+            args = instance.run_scraping.call_args.args
+            assert args[0] == '1'
+            assert args[2] is None
+
+    def test_missing_area_id_error(self, client):
+        """area_id未指定でエラーSSEを返す（freeword有無に関わらず）。"""
+        resp = client.get('/scrape?freeword=髪質改善')
+        data = resp.get_data(as_text=True)
+        assert 'event: error' in data
+        assert 'エリアが選択されていません' in data

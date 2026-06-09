@@ -4,6 +4,7 @@ import json
 import sqlite3
 import re
 from datetime import datetime
+from urllib.parse import urlsplit, urlunsplit, urlencode, parse_qsl
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
@@ -89,25 +90,43 @@ class ScrapingService:
         self.logger.error(f"Request failed for {url} after {self.config['RETRY_COUNT']} attempts.")
         return None
 
-    def run_scraping(self, area_id, job_id):
+    def _build_freeword_url(self, base_url, freeword):
+        """エリアURLにfreewordクエリを付与する。freewordがNone/空ならbase_urlをそのまま返す（後方互換）。"""
+        if not freeword:
+            return base_url
+        parts = urlsplit(base_url)
+        query = dict(parse_qsl(parts.query))
+        query['freeword'] = freeword  # urlencodeが日本語を%XXエンコードする
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+    def run_scraping(self, area_id, job_id, freeword=None):
         """
         スクレイピング処理全体を統括し、進捗をyieldするジェネレータ。
         """
         try:
             area_info = self._get_area_info(area_id)
+            # フリーワードを正規化（前後空白除去、空文字はNone扱い）
+            freeword = (freeword or '').strip() or None
+
             if self._is_cancelled(job_id):
                 yield f"event: cancelled\ndata: 処理がユーザーによって中断されました。\n\n"
                 return
-            yield f"event: message\ndata: 「{area_info['name']}」のスクレイピングを開始します。\n\n"
+            if freeword:
+                yield f"event: message\ndata: 「{area_info['name']}」を『{freeword}』で絞り込んでスクレイピングを開始します。\n\n"
+            else:
+                yield f"event: message\ndata: 「{area_info['name']}」のスクレイピングを開始します。\n\n"
 
-            total_pages, final_area_url = self._get_total_pages(area_info['url'], job_id)
+            # エリアURLにfreewordクエリを合成（freeword=Noneなら元のURLのまま＝後方互換）
+            start_url = self._build_freeword_url(area_info['url'], freeword)
+
+            total_pages, final_area_url = self._get_total_pages(start_url, job_id, freeword)
             if self._is_cancelled(job_id) or total_pages is None:
                 yield f"event: cancelled\ndata: 処理がユーザーによって中断されました。\n\n"
                 return
-            
+
             yield f"event: message\ndata: 総ページ数を特定しました: {total_pages}ページ。一覧からURLを収集中...\n\n"
 
-            salon_urls = yield from self._get_all_salon_urls(final_area_url, total_pages, job_id)
+            salon_urls = yield from self._get_all_salon_urls(final_area_url, total_pages, job_id, freeword)
             if self._is_cancelled(job_id):
                 yield f"event: cancelled\ndata: 処理がユーザーによって中断されました。\n\n"
                 return
@@ -160,10 +179,10 @@ class ScrapingService:
             yield f"event: message\ndata: 営業対象: {len(df_target)}件、除外対象: {len(df_excluded)}件に分類しました。\n\n"
             
             # Excelファイル生成
-            file_name = self._create_target_excel_file(df_target, area_info['name'])
+            file_name = self._create_target_excel_file(df_target, area_info['name'], freeword)
             excluded_file_name = None
             if not df_excluded.empty:
-                excluded_file_name = self._create_excluded_excel_file(df_excluded, area_info['name'])
+                excluded_file_name = self._create_excluded_excel_file(df_excluded, area_info['name'], freeword)
                 yield f"event: message\ndata: 除外リストも生成しました。\n\n"
             
             # プレビューデータは営業対象リストから生成
@@ -192,12 +211,16 @@ class ScrapingService:
             raise ValueError(f"Area with ID {area_id} not found.")
         return {'name': area['name'], 'url': area['url']}
 
-    def _get_total_pages(self, area_url, job_id):
+    def _get_total_pages(self, area_url, job_id, freeword=None):
         response = self._make_request(area_url, job_id)
         if not response:
             return None, None
 
         final_url = response.url
+        # freeword指定時、リダイレクトでクエリが落ちても確実に保持する。
+        # _build_freeword_urlは既存クエリ(searchGender等)をマージしつつfreewordを補う。
+        # freeword=Noneなら何もしない（後方互換）。
+        final_url = self._build_freeword_url(final_url, freeword)
         soup = BeautifulSoup(response.text, 'html.parser')
         pagination_element = soup.select_one(self.selectors['area_page']['pagination'])
         if not pagination_element:
@@ -221,19 +244,26 @@ class ScrapingService:
         
         return total_pages, final_url
 
-    def _get_all_salon_urls(self, area_url, total_pages, job_id):
+    def _get_all_salon_urls(self, area_url, total_pages, job_id, freeword=None):
         all_urls = set()
         page_urls = []
 
-        paginated_base_url = area_url
-        if paginated_base_url.endswith('/'):
-            paginated_base_url = paginated_base_url[:-1]
+        # area_urlからクエリ(?freeword=...)をpathと分離する。
+        # 単純な文字列連結だと page2 で "...salon/?freeword=kw/PN2.html" のように壊れるため、
+        # PN{N}.html を path に付けてからクエリを再付与する。
+        parts = urlsplit(area_url)
+        query = dict(parse_qsl(parts.query))
+        if freeword:
+            query['freeword'] = freeword  # クエリが落ちていても確実にfreewordを含める
+        query_string = urlencode(query)
+        base_path = parts.path[:-1] if parts.path.endswith('/') else parts.path
 
         for page in range(1, total_pages + 1):
             if page == 1:
-                page_urls.append(area_url)
+                page_path = parts.path
             else:
-                page_urls.append(f"{paginated_base_url}/PN{page}.html")
+                page_path = f"{base_path}/PN{page}.html"
+            page_urls.append(urlunsplit((parts.scheme, parts.netloc, page_path, query_string, '')))
 
         with ThreadPoolExecutor(max_workers=self.config['MAX_WORKERS']) as executor:
             if not page_urls:
@@ -398,12 +428,16 @@ class ScrapingService:
         phone_element = soup.select_one(self.selectors['phone_page']['phone_number'])
         return phone_element.text.strip() if phone_element else ''
 
-    def _create_target_excel_file(self, df_target, area_name):
+    def _create_target_excel_file(self, df_target, area_name, freeword=None):
         """営業対象リストのExcelファイルを作成"""
         # タイムスタンプをファイル名に追加
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         safe_area_name = re.sub(r'[\\/*?:"<>|]', "", area_name)
-        file_name = f"{safe_area_name}_{timestamp}.xlsx"
+        safe_freeword = re.sub(r'[\\/*?:"<>|\x00-\x1f]', "", freeword).strip() if freeword else ''
+        if safe_freeword:
+            file_name = f"{safe_area_name}_{safe_freeword}_{timestamp}.xlsx"
+        else:
+            file_name = f"{safe_area_name}_{timestamp}.xlsx"
         
         output_path = os.path.join(self.config['OUTPUT_DIR'], file_name)
         
@@ -426,12 +460,16 @@ class ScrapingService:
         df_target.to_excel(output_path, index=False, sheet_name='サロンリスト')
         return file_name
     
-    def _create_excluded_excel_file(self, df_excluded, area_name):
+    def _create_excluded_excel_file(self, df_excluded, area_name, freeword=None):
         """除外リストのExcelファイルを作成"""
         # タイムスタンプをファイル名に追加
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         safe_area_name = re.sub(r'[\\/*?:"<>|]', "", area_name)
-        file_name = f"除外リスト_{safe_area_name}_{timestamp}.xlsx"
+        safe_freeword = re.sub(r'[\\/*?:"<>|\x00-\x1f]', "", freeword).strip() if freeword else ''
+        if safe_freeword:
+            file_name = f"除外リスト_{safe_area_name}_{safe_freeword}_{timestamp}.xlsx"
+        else:
+            file_name = f"除外リスト_{safe_area_name}_{timestamp}.xlsx"
         
         output_path = os.path.join(self.config['OUTPUT_DIR'], file_name)
         

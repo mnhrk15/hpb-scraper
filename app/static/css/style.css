@@ -106,7 +106,8 @@ body {
     position: relative;
 }
 
-#area-search-input {
+#area-search-input,
+.freeword-input {
     width: 100%;
     padding: 12px 15px;
     background-color: #fff;
@@ -117,7 +118,8 @@ body {
     transition: all var(--transition-speed) ease;
 }
 
-#area-search-input:focus {
+#area-search-input:focus,
+.freeword-input:focus {
     outline: none;
     border-color: var(--primary-color);
     box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.05);

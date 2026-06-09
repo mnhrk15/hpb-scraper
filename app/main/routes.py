@@ -57,6 +57,7 @@ def scrape():
     スクレイピング実行リクエストを受け取り、進捗をストリーミング配信する。
     """
     area_id = request.args.get('area_id')
+    freeword = request.args.get('freeword')  # フリーワード絞り込み（任意。Flaskが自動URLデコード）
     app = current_app._get_current_object()
     job_id = uuid.uuid4().hex
 
@@ -65,15 +66,15 @@ def scrape():
             yield "event: error\ndata: {\"error\": \"エリアが選択されていません。\"}\n\n"
         return Response(error_generator(), mimetype='text/event-stream')
 
-    def stream_with_context(app_context, area_id_param, job_id_param):
+    def stream_with_context(app_context, area_id_param, job_id_param, freeword_param):
         """ジェネレータがアプリコンテキスト内で実行されるようにするラッパー"""
         cancel_file = os.path.join(app_context.instance_path, f"{job_id_param}.cancel")
         try:
             with app_context.app_context():
                 yield f"event: job_id\ndata: {job_id_param}\n\n"
-                
+
                 service = ScrapingService()
-                yield from service.run_scraping(area_id_param, job_id_param)
+                yield from service.run_scraping(area_id_param, job_id_param, freeword_param)
         finally:
             # ジョブ完了後、キャンセルシグナルファイルを削除
             if os.path.exists(cancel_file):
@@ -82,7 +83,7 @@ def scrape():
                 except OSError as e:
                     app_context.logger.error(f"Error removing cancel file {cancel_file}: {e}")
 
-    return Response(stream_with_context(app, area_id, job_id), mimetype='text/event-stream')
+    return Response(stream_with_context(app, area_id, job_id, freeword), mimetype='text/event-stream')
 
 @bp.route('/scrape/cancel', methods=['POST'])
 def scrape_cancel():

@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const formCard = customSelectContainer.closest('.card'); // Get the parent card for z-index control
     const searchInput = document.getElementById('area-search-input');
     const selectedAreaIdInput = document.getElementById('selected-area-id');
+    const freewordInput = document.getElementById('freeword-input');
     const optionsList = document.getElementById('area-options-list');
     const options = optionsList.querySelectorAll('.area-option');
     let selectedOption = null;
@@ -224,8 +225,13 @@ document.addEventListener('DOMContentLoaded', () => {
         cancelButton.disabled = false;
 
         const areaId = selectedAreaIdInput.value;
-        
-        eventSource = new EventSource(`/scrape?area_id=${areaId}`);
+        const freeword = freewordInput.value.trim();
+
+        let scrapeUrl = `/scrape?area_id=${encodeURIComponent(areaId)}`;
+        if (freeword) {
+            scrapeUrl += `&freeword=${encodeURIComponent(freeword)}`;
+        }
+        eventSource = new EventSource(scrapeUrl);
 
         eventSource.addEventListener('job_id', (e) => {
             currentJobId = e.data;
