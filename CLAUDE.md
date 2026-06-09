@@ -40,7 +40,7 @@ Tests cover the Instagram search feature (`tests/test_instagram_service.py`, `te
 Flask application factory pattern (`app/__init__.py`) with a single blueprint (`app/main/`).
 
 ### Backend Flow
-1. `app/main/routes.py` — 7 endpoints: index (`/`), scrape (`/scrape`), cancel (`/scrape/cancel`), download (`/download/<filename>`), instagram-search-available (`/api/instagram-search-available`), instagram-search (`/instagram-search`)
+1. `app/main/routes.py` — 6 endpoints: index (`/`), scrape (`/scrape`), cancel (`/scrape/cancel`), instagram-search-available (`/api/instagram-search-available`), instagram-search (`/instagram-search`), download (`/download/<path:filename>`)
 2. `app/main/services/scraping_service.py` — `ScrapingService` class, the core scraping engine (~460 lines)
 3. `app/db.py` — SQLAlchemy engine, `areas` table (id, prefecture, name, url), `flask init-db` CLI command
 4. `config.py` — All settings from `.env`: `MAX_WORKERS`(5), `REQUEST_WAIT_SECONDS`(1), `RETRY_COUNT`(3), `SERPER_API_KEY`, `INSTAGRAM_MAX_URLS`(3)
@@ -66,10 +66,11 @@ The `/instagram-search` endpoint streams SSE events with the same protocol. Addi
 
 ### Instagram Search Feature
 - Triggered manually after scraping completes via "Instagram検索" button
-- Uses Serper.dev Google Search API (`SERPER_API_KEY` in `.env`)
-- Reads salon names from target list Excel file (stateless design)
-- Searches `{サロン名} Instagram` and filters results for instagram.com URLs (up to 3 per salon)
-- Results exported to separate Excel: `Instagram_{area}_{timestamp}.xlsx`
+- Uses Serper.dev Google Search API (`SERPER_API_KEY` in `.env`); the button is hidden when the key is unset (`/api/instagram-search-available`)
+- Reads salon names from target list Excel file (stateless design); searched sequentially, results mapped back by **row index** to handle duplicate salon names
+- Searches `{サロン名} Instagram` (`gl=jp`, `hl=ja`) and filters `organic` results for instagram.com URLs (up to `INSTAGRAM_MAX_URLS`, default 3, per salon)
+- Error handling in `_search_instagram()`: 429 → exponential backoff (1/2/4/8/16s, max 5 retries, doesn't consume `RETRY_COUNT`); 401/402 raise `SerperAPIError` which aborts the whole job with an error event
+- Results exported to separate Excel `Instagram_{area}_{timestamp}.xlsx` (area name regex-parsed from the source filename); IG URL columns are inserted right after `サロン名`
 - Reuses existing cancellation mechanism (signal file-based)
 
 ### Job Cancellation Mechanism
@@ -77,11 +78,14 @@ Signal file-based: POST `/scrape/cancel` creates `{job_id}.cancel` in `instance/
 
 ### Scraping Engine Details
 `ScrapingService.run_scraping()` is a generator that yields SSE events:
-1. Fetch area URL from DB → parse pagination for total pages
+1. Fetch area URL from DB → parse pagination for total pages (`ITEMS_PER_PAGE=20`; handles both `1/9ページ` and `全150件` text formats; page N URL is `{base}/PN{N}.html`)
 2. Collect salon URLs from all list pages (parallel via ThreadPoolExecutor)
-3. Fetch each salon's detail page + phone number page (parallel)
-4. Apply exclusion filters → split into target/excluded DataFrames
-5. Generate two Excel files: `{area}_{timestamp}.xlsx` (targets) and `除外リスト_{area}_{timestamp}.xlsx` (excluded)
+3. Fetch each salon's detail page + phone number page (parallel). Phone number lives on a separate `/tel/` sub-page reached via a link on the detail page
+4. De-duplicate rows on `['電話番号', 'サロンURL']` (keep first)
+5. Apply exclusion filters → split into target/excluded DataFrames
+6. Generate Excel files into `OUTPUT_DIR` (default `output/`): `{area}_{timestamp}.xlsx` (targets) and `除外リスト_{area}_{timestamp}.xlsx` (excluded, only if non-empty). The excluded file prepends a `除外理由` column
+
+`_make_request()` waits `REQUEST_WAIT_SECONDS` after **every** attempt (success or failure) and retries up to `RETRY_COUNT` times. All requests check the cancel signal before firing.
 
 ### Exclusion Business Logic
 Salons are excluded (with reason logged) if ANY of these conditions are true:
@@ -92,7 +96,7 @@ Salons are excluded (with reason logged) if ANY of these conditions are true:
 - **関連リンク数**: 4 or more related links
 
 ### CSS Selectors
-All scraping selectors are externalized in `selectors.json` (area page, salon detail, phone page). When the target site's HTML structure changes, update this file rather than modifying scraping code.
+All scraping selectors are externalized in `selectors.json` (area page, salon detail, phone page). When the target site's HTML structure changes, update this file rather than modifying scraping code. Note: `address_label` and `staff_count_label` are **not** CSS selectors — they are `<th>` text labels matched inside `table.slnDataTbl`, whose sibling `<td>` value is read (`_get_value_by_th_text`).
 
 ### WSGI / Gevent
 `wsgi.py` applies `gevent.monkey.patch_all()` **before** importing Flask. This is required for async I/O with gunicorn workers. Do not reorder these imports.
