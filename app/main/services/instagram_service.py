@@ -16,6 +16,8 @@ class SerperAPIError(Exception):
 
 class InstagramSearchService:
     SERPER_SEARCH_URL = 'https://google.serper.dev/search'
+    # 決裁者(オーナー・店長・代表)のアカウントを優先してヒットさせるための検索キーワード
+    DECISION_MAKER_KEYWORDS = '(オーナー OR 店長 OR 代表)'
 
     def __init__(self):
         self.config = current_app.config
@@ -48,7 +50,7 @@ class InstagramSearchService:
     def _search_instagram(self, salon_name, job_id):
         """1サロンのInstagram URLを検索する。最大max_urls件のURLリストを返す。"""
         payload = {
-            'q': f'{salon_name} Instagram',
+            'q': f'{salon_name} Instagram {self.DECISION_MAKER_KEYWORDS}',
             'gl': 'jp',
             'hl': 'ja',
             'num': 10,

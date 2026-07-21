@@ -77,7 +77,7 @@ The `/instagram-search` endpoint streams SSE events with the same protocol. Addi
 - Triggered manually after scraping completes via "Instagram検索" button
 - Uses Serper.dev Google Search API (`SERPER_API_KEY` in `.env`); the button is hidden when the key is unset (`/api/instagram-search-available`)
 - Reads salon names from target list Excel file (stateless design); searched sequentially, results mapped back by **row index** to handle duplicate salon names
-- Searches `{サロン名} Instagram` (`gl=jp`, `hl=ja`) and filters `organic` results for instagram.com URLs (up to `INSTAGRAM_MAX_URLS`, default 3, per salon)
+- Searches `{サロン名} Instagram (オーナー OR 店長 OR 代表)` (`gl=jp`, `hl=ja`) and filters `organic` results for instagram.com URLs (up to `INSTAGRAM_MAX_URLS`, default 3, per salon). The decision-maker keywords (`DECISION_MAKER_KEYWORDS` class constant) bias results toward owner/manager personal accounts; when Google finds none, results naturally fall back to salon official accounts (no result filtering)
 - Error handling in `_search_instagram()`: 429 → exponential backoff (1/2/4/8/16s, max 5 retries, doesn't consume `RETRY_COUNT`); 401/402 raise `SerperAPIError` which aborts the whole job with an error event
 - Results exported to separate Excel `Instagram_{area}_{timestamp}.xlsx` (area name regex-parsed from the source filename); IG URL columns are inserted right after `サロン名`
 - Reuses existing cancellation mechanism (signal file-based)
