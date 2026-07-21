@@ -70,6 +70,24 @@ class TestSearchInstagram:
             'https://www.instagram.com/salon_a_official/',
         ]
 
+    def test_query_includes_decision_maker_keywords(self, app_context):
+        """検索クエリに決裁者キーワード(オーナー OR 店長 OR 代表)が含まれる。"""
+        mock_resp = _make_serper_response([])
+
+        with patch.object(InstagramSearchService, '__init__', lambda self: None):
+            service = InstagramSearchService()
+            service.config = app_context.config
+            service.session = MagicMock()
+            service.session.post.return_value = mock_resp
+            service.instance_path = app_context.instance_path
+            service.logger = app_context.logger
+            service.max_urls = 3
+
+            service._search_instagram('サロンA', 'test-job-id')
+
+        payload = service.session.post.call_args.kwargs['json']
+        assert payload['q'] == 'サロンA Instagram (オーナー OR 店長 OR 代表)'
+
     def test_no_instagram_results(self, app_context):
         """Instagram URLが含まれない場合は空リストを返す。"""
         organic = [
