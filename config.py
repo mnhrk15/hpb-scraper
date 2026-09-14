@@ -17,6 +17,14 @@ def _get_env_as_int(key: str, default_value: int) -> int:
     except (ValueError, TypeError):
         return default_value
 
+def _get_env_as_bool(key: str, default_value: bool) -> bool:
+    """環境変数を真偽値として安全に取得する。"""
+    value = os.getenv(key)
+    if value is None:
+        return default_value
+    return value.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
 # プロジェクトのルートディレクトリ
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
@@ -52,3 +60,11 @@ OUTPUT_DIR = os.getenv('OUTPUT_DIR', 'output')
 # Serper API設定 (Instagram検索機能)
 SERPER_API_KEY = os.getenv('SERPER_API_KEY', '')
 INSTAGRAM_MAX_URLS = _get_env_as_int('INSTAGRAM_MAX_URLS', 3)
+
+# 打電リストチェック設定
+# スタイリストタブを取得して実スタイリスト数で判定するか
+STYLIST_CHECK_ENABLED = _get_env_as_bool('STYLIST_CHECK_ENABLED', True)
+# 対応メモの「要確認」に出す店名キーワード（カンマ区切り。空なら check_service の既定値）
+CHECK_FLAG_KEYWORDS = os.getenv('CHECK_FLAG_KEYWORDS', '')
+# 打電NGリストのアップロード上限 (MB)
+NG_LIST_MAX_MB = _get_env_as_int('NG_LIST_MAX_MB', 10)

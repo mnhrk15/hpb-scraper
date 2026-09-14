@@ -14,5 +14,13 @@
   },
   "phone_page": {
     "phone_number": "td.fs16.b"
+  },
+  "stylist_page": {
+    "slot": "div.w166.mHA",
+    "name": "p.mT10.fs16.b",
+    "kana": "p.db.fs10.fgBbrown",
+    "role": "div.mT5.fs10 span.fgPink",
+    "pagination": "p.pa.bottom0.right0",
+    "heading": "h1"
   }
-} 
+}

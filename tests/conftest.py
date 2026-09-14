@@ -26,6 +26,11 @@ def app(tmp_path):
         'OUTPUT_DIR': output_dir,
     })
 
+    # instance配下（キャンセルシグナル・アップロードしたNGリスト）もテストごとに隔離する
+    instance_dir = str(tmp_path / 'instance')
+    os.makedirs(instance_dir, exist_ok=True)
+    app.instance_path = instance_dir
+
     yield app
 
 

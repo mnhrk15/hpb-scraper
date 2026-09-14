@@ -5,7 +5,8 @@ from flask import Flask
 
 def _cleanup_stale_cancel_files(app):
     """
-    アプリケーション起動時に、古くなったキャンセルシグナルファイルを削除する。
+    アプリケーション起動時に、古くなったキャンセルシグナルファイルと
+    アップロード済みの打電NGリストを削除する。
     """
     try:
         instance_path = app.instance_path
@@ -15,15 +16,20 @@ def _cleanup_stale_cancel_files(app):
         lifetime = app.config.get('STALE_CANCEL_FILE_LIFETIME_SECONDS', 86400)
         current_time = time.time()
 
-        for f in glob.glob(os.path.join(instance_path, '*.cancel')):
+        # キャンセルシグナルとアップロード済み打電NGリストを同じ寿命で掃除する
+        stale_targets = (
+            glob.glob(os.path.join(instance_path, '*.cancel'))
+            + glob.glob(os.path.join(instance_path, 'nglist', '*.xlsx'))
+        )
+        for f in stale_targets:
             try:
                 file_mtime = os.path.getmtime(f)
                 if (current_time - file_mtime) > lifetime:
                     os.remove(f)
-                    app.logger.info(f"Removed stale cancel file: {os.path.basename(f)}")
+                    app.logger.info(f"Removed stale file: {os.path.basename(f)}")
             except (OSError, ValueError) as e:
                 # ファイルの読み取り/削除エラーはログに記録するが、起動は妨げない
-                app.logger.warning(f"Error processing stale cancel file {f}: {e}")
+                app.logger.warning(f"Error processing stale file {f}: {e}")
     except Exception as e:
         app.logger.error(f"Failed to run cancel file cleanup: {e}")
 

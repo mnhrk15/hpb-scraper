@@ -10,6 +10,14 @@ from ..db import get_db
 from .services.scraping_service import ScrapingService
 from .services.instagram_service import InstagramSearchService
 
+# 打電NGリストの保存先（instance配下。キャンセルファイルと同じ寿命管理）
+NG_LIST_DIR_NAME = 'nglist'
+
+
+def _nglist_dir():
+    return os.path.join(current_app.instance_path, NG_LIST_DIR_NAME)
+
+
 @bp.route('/')
 def index():
     """
@@ -51,6 +59,45 @@ def index():
 
     return render_template('index.html', grouped_areas=grouped_areas)
 
+@bp.route('/nglist', methods=['POST'])
+def upload_nglist():
+    """
+    打電NGリスト(xlsx)を受け取り、/scrape に渡すトークンを返す。
+    instance/nglist/{token}.xlsx に保存する（キャンセルファイルと同じ寿命管理）。
+    """
+    uploaded = request.files.get('file')
+    if uploaded is None or not uploaded.filename:
+        return jsonify({'status': 'error', 'message': 'ファイルが指定されていません。'}), 400
+
+    if not uploaded.filename.lower().endswith('.xlsx'):
+        return jsonify({'status': 'error', 'message': 'xlsxファイルを指定してください。'}), 400
+
+    max_mb = current_app.config.get('NG_LIST_MAX_MB', 10)
+    max_bytes = max_mb * 1024 * 1024
+    if request.content_length and request.content_length > max_bytes:
+        return jsonify({'status': 'error', 'message': f'ファイルサイズが上限({max_mb}MB)を超えています。'}), 413
+
+    token = uuid.uuid4().hex
+    directory = _nglist_dir()
+    saved_path = os.path.join(directory, f'{token}.xlsx')
+    try:
+        os.makedirs(directory, exist_ok=True)
+        uploaded.save(saved_path)
+        # content_lengthが無いリクエストに備えて保存後のサイズも確認する
+        oversized = os.path.getsize(saved_path) > max_bytes
+        if oversized:
+            os.remove(saved_path)
+    except OSError as e:
+        current_app.logger.error(f"Error saving NG list: {e}")
+        return jsonify({'status': 'error', 'message': 'NGリストの保存に失敗しました。'}), 500
+
+    if oversized:
+        return jsonify({'status': 'error', 'message': f'ファイルサイズが上限({max_mb}MB)を超えています。'}), 413
+
+    current_app.logger.info(f"NG list uploaded: {token}")
+    return jsonify({'status': 'ok', 'token': token})
+
+
 @bp.route('/scrape')
 def scrape():
     """
@@ -58,6 +105,7 @@ def scrape():
     """
     area_id = request.args.get('area_id')
     freeword = request.args.get('freeword')  # フリーワード絞り込み（任意。Flaskが自動URLデコード）
+    nglist_token = request.args.get('nglist')  # 打電NGリストのトークン（任意）
     app = current_app._get_current_object()
     job_id = uuid.uuid4().hex
 
@@ -66,7 +114,15 @@ def scrape():
             yield "event: error\ndata: {\"error\": \"エリアが選択されていません。\"}\n\n"
         return Response(error_generator(), mimetype='text/event-stream')
 
-    def stream_with_context(app_context, area_id_param, job_id_param, freeword_param):
+    # パストラバーサル対策はjob_idと同じくisalnumで担保する
+    if nglist_token and not nglist_token.isalnum():
+        def error_generator():
+            yield 'event: error\ndata: {"error": "無効なNGリスト指定です。"}\n\n'
+        return Response(error_generator(), mimetype='text/event-stream')
+
+    ng_list_path = os.path.join(_nglist_dir(), f'{nglist_token}.xlsx') if nglist_token else None
+
+    def stream_with_context(app_context, area_id_param, job_id_param, freeword_param, ng_list_path_param):
         """ジェネレータがアプリコンテキスト内で実行されるようにするラッパー"""
         cancel_file = os.path.join(app_context.instance_path, f"{job_id_param}.cancel")
         try:
@@ -74,7 +130,9 @@ def scrape():
                 yield f"event: job_id\ndata: {job_id_param}\n\n"
 
                 service = ScrapingService()
-                yield from service.run_scraping(area_id_param, job_id_param, freeword_param)
+                yield from service.run_scraping(
+                    area_id_param, job_id_param, freeword_param, ng_list_path_param
+                )
         finally:
             # ジョブ完了後、キャンセルシグナルファイルを削除
             if os.path.exists(cancel_file):
@@ -83,7 +141,10 @@ def scrape():
                 except OSError as e:
                     app_context.logger.error(f"Error removing cancel file {cancel_file}: {e}")
 
-    return Response(stream_with_context(app, area_id, job_id, freeword), mimetype='text/event-stream')
+    return Response(
+        stream_with_context(app, area_id, job_id, freeword, ng_list_path),
+        mimetype='text/event-stream',
+    )
 
 @bp.route('/scrape/cancel', methods=['POST'])
 def scrape_cancel():

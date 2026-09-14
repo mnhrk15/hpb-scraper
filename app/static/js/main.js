@@ -15,6 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const searchInput = document.getElementById('area-search-input');
     const selectedAreaIdInput = document.getElementById('selected-area-id');
     const freewordInput = document.getElementById('freeword-input');
+    const nglistInput = document.getElementById('nglist-input');
     const optionsList = document.getElementById('area-options-list');
     const options = optionsList.querySelectorAll('.area-option');
     let selectedOption = null;
@@ -203,7 +204,7 @@ document.addEventListener('DOMContentLoaded', () => {
         resultCard.style.display = 'none'; // Clear previous results/errors first
 
         if (!selectedAreaIdInput.value) {
-            showResultCard(false, '入力エラー', 'エリアを選択してください。', null, null, null);
+            showResultCard(false, '入力エラー', 'エリアを選択してください。', null, null, null, null);
             return;
         }
 
@@ -231,6 +232,35 @@ document.addEventListener('DOMContentLoaded', () => {
         if (freeword) {
             scrapeUrl += `&freeword=${encodeURIComponent(freeword)}`;
         }
+
+        // 打電NGリストが選ばれていれば先にアップロードし、トークンを付けてから開始する
+        const nglistFile = nglistInput && nglistInput.files ? nglistInput.files[0] : null;
+        if (!nglistFile) {
+            startScrape(scrapeUrl);
+            return;
+        }
+
+        statusTitle.textContent = 'NGリストを送信中';
+        statusDetails.textContent = '打電NGリストをアップロードしています。';
+
+        const formData = new FormData();
+        formData.append('file', nglistFile);
+        fetch('/nglist', { method: 'POST', body: formData })
+            .then(res => res.json().then(data => ({ ok: res.ok, data })))
+            .then(({ ok, data }) => {
+                if (!ok || !data.token) {
+                    throw new Error(data.message || 'NGリストのアップロードに失敗しました。');
+                }
+                startScrape(`${scrapeUrl}&nglist=${encodeURIComponent(data.token)}`);
+            })
+            .catch(err => {
+                statusCard.style.display = 'none';
+                showResultCard(false, 'エラーが発生しました', err.message, null, null, null, null);
+                resetUI();
+            });
+    });
+
+    function startScrape(scrapeUrl) {
         eventSource = new EventSource(scrapeUrl);
 
         eventSource.addEventListener('job_id', (e) => {
@@ -258,8 +288,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         eventSource.addEventListener('progress', (e) => {
             const progress = JSON.parse(e.data);
-            statusTitle.textContent = '詳細情報取得中';
-            statusDetails.textContent = `サロン詳細情報を取得しています... (${progress.current}/${progress.total}件)`;
+            // スタイリストタブの取得段も同じprogressイベントで進捗を送るため、phaseで文言を分ける
+            const isStylistPhase = progress.phase === 'stylist';
+            statusTitle.textContent = isStylistPhase ? 'スタイリスト確認中' : '詳細情報取得中';
+            statusDetails.textContent = isStylistPhase
+                ? `スタイリストタブを確認しています... (${progress.current}/${progress.total}件)`
+                : `サロン詳細情報を取得しています... (${progress.current}/${progress.total}件)`;
             if (progress.total > 0) {
                 progressBar.style.width = `${(progress.current / progress.total) * 100}%`;
             }
@@ -271,13 +305,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const message = result.excluded_file_name 
                 ? `ファイル名: ${result.file_name}<br>除外リストも生成されました。`
                 : `ファイル名: ${result.file_name}`;
-            showResultCard(true, `処理が正常に完了しました。`, message, result.file_name, result.excluded_file_name, result.preview_data);
+            showResultCard(true, `処理が正常に完了しました。`, message, result.file_name, result.excluded_file_name, result.preview_data, result.memo_file_name);
             resetUI();
         });
 
         eventSource.addEventListener('cancelled', (e) => {
             statusCard.style.display = 'none';
-            showResultCard(false, '処理が中断されました', e.data, null, null, null);
+            showResultCard(false, '処理が中断されました', e.data, null, null, null, null);
             resetUI();
         });
 
@@ -301,10 +335,10 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (parseError) { /* ignore */ }
             
             statusCard.style.display = 'none';
-            showResultCard(false, 'エラーが発生しました', errorMessage, null, null, null);
+            showResultCard(false, 'エラーが発生しました', errorMessage, null, null, null, null);
             resetUI();
         };
-    });
+    }
 
     cancelButton.addEventListener('click', () => {
         if (!currentJobId) return;
@@ -324,7 +358,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    function showResultCard(isSuccess, title, message, fileName, excludedFileName, previewData) {
+    function showResultCard(isSuccess, title, message, fileName, excludedFileName, previewData, memoFileName) {
         let previewHtml = '';
         if (isSuccess && previewData && previewData.length > 0) {
             const headers = Object.keys(previewData[0]);
@@ -359,6 +393,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (excludedFileName) {
             downloadLinksHtml += `<a href="/download/${excludedFileName}" class="download-link excluded-download-link">除外リストをダウンロード</a>`;
+        }
+        if (memoFileName) {
+            downloadLinksHtml += `<a href="/download/${memoFileName}" class="download-link memo-download-link">対応メモをダウンロード</a>`;
         }
 
         resultCard.innerHTML = `

@@ -116,3 +116,102 @@ class TestScrapeEndpointFreeword:
         data = resp.get_data(as_text=True)
         assert 'event: error' in data
         assert 'エリアが選択されていません' in data
+
+
+class TestNgListUpload:
+    def _xlsx_bytes(self):
+        import io
+        import openpyxl
+
+        workbook = openpyxl.Workbook()
+        workbook.active.append(['店名', '電話番号', 'URL'])
+        buffer = io.BytesIO()
+        workbook.save(buffer)
+        return buffer.getvalue()
+
+    def test_upload_returns_token(self, client):
+        """xlsxをアップロードするとトークンが返る。"""
+        import io
+
+        resp = client.post(
+            '/nglist',
+            data={'file': (io.BytesIO(self._xlsx_bytes()), 'ng.xlsx')},
+            content_type='multipart/form-data',
+        )
+        data = resp.get_json()
+        assert resp.status_code == 200
+        assert data['status'] == 'ok'
+        # トークンは job_id と同じくisalnum（パストラバーサル対策）
+        assert data['token'].isalnum()
+        assert len(data['token']) == 32
+
+    def test_saved_under_instance_nglist(self, app, client):
+        import io
+
+        resp = client.post(
+            '/nglist',
+            data={'file': (io.BytesIO(self._xlsx_bytes()), 'ng.xlsx')},
+            content_type='multipart/form-data',
+        )
+        token = resp.get_json()['token']
+        assert os.path.exists(os.path.join(app.instance_path, 'nglist', f'{token}.xlsx'))
+
+    def test_missing_file(self, client):
+        resp = client.post('/nglist', data={}, content_type='multipart/form-data')
+        assert resp.status_code == 400
+        assert 'ファイルが指定されていません' in resp.get_json()['message']
+
+    def test_rejects_non_xlsx(self, client):
+        import io
+
+        resp = client.post(
+            '/nglist',
+            data={'file': (io.BytesIO(b'not an excel file'), 'ng.csv')},
+            content_type='multipart/form-data',
+        )
+        assert resp.status_code == 400
+        assert 'xlsx' in resp.get_json()['message']
+
+    def test_rejects_oversized_file(self, app):
+        import io
+
+        app.config['NG_LIST_MAX_MB'] = 1
+        client = app.test_client()
+        resp = client.post(
+            '/nglist',
+            data={'file': (io.BytesIO(b'x' * (2 * 1024 * 1024)), 'ng.xlsx')},
+            content_type='multipart/form-data',
+        )
+        assert resp.status_code == 413
+        assert '上限' in resp.get_json()['message']
+
+
+class TestScrapeNgListParam:
+    def test_invalid_token_rejected(self, client):
+        """nglistトークンに記号が混ざる場合はエラーSSEを返す。"""
+        resp = client.get('/scrape?area_id=1&nglist=../evil')
+        data = resp.get_data(as_text=True)
+        assert 'event: error' in data
+        assert '無効なNGリスト指定' in data
+
+    def test_valid_token_is_passed_to_service(self, app, client):
+        """正しいトークンならNGリストのパスがサービスに渡る。"""
+        with patch('app.main.routes.ScrapingService') as MockService:
+            instance = MockService.return_value
+            instance.run_scraping.return_value = iter(['event: message\ndata: ok\n\n'])
+
+            client.get('/scrape?area_id=1&nglist=abc123').get_data(as_text=True)
+
+        args = instance.run_scraping.call_args.args
+        assert args[0] == '1'
+        assert args[3] == os.path.join(app.instance_path, 'nglist', 'abc123.xlsx')
+
+    def test_without_token_passes_none(self, client):
+        """nglist未指定ならNoneが渡る（突合はスキップされる）。"""
+        with patch('app.main.routes.ScrapingService') as MockService:
+            instance = MockService.return_value
+            instance.run_scraping.return_value = iter(['event: message\ndata: ok\n\n'])
+
+            client.get('/scrape?area_id=1').get_data(as_text=True)
+
+        assert instance.run_scraping.call_args.args[3] is None
