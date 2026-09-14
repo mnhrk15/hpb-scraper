@@ -39,7 +39,13 @@
                         <input type="text" id="freeword-input" name="freeword" class="freeword-input" placeholder="例: 髪質改善（空欄ならエリア全体）" autocomplete="off">
                     </div>
                     <div class="form-group">
-                        <label for="nglist-input">打電NGリスト（xlsx・任意）</label>
+                        <div class="label-row">
+                            <label for="nglist-input">打電NGリスト（xlsx・任意）</label>
+                            <span class="field-help-wrap">
+                                <button type="button" class="field-help" aria-label="打電NGリストの説明を表示" aria-describedby="nglist-help">?</button>
+                                <span id="nglist-help" class="field-tooltip" role="tooltip">過去に打電NGとなった店舗の一覧です。指定すると電話番号とHotPepper BeautyのサロンIDで突合し、一致した店舗を営業対象リストから除外します（店名では突合しません）。随時更新されるため、実行のたびに最新版をダウンロードして指定してください。未指定の場合は突合をスキップし、その旨を進捗に表示します。</span>
+                            </span>
+                        </div>
                         <input type="file" id="nglist-input" name="nglist" class="freeword-input" accept=".xlsx" autocomplete="off">
                     </div>
                     <button type="submit" id="run-button">

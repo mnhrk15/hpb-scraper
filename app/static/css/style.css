@@ -101,6 +101,76 @@ body {
     margin-bottom: 8px;
 }
 
+/* --- Field Help Tooltip --- */
+/* ラベル行。labelのmargin-bottomをここに移し、他のフィールドと余白を揃える。
+   ツールチップの位置の基準でもある（アイコン基準だと狭い画面ではみ出すため） */
+.label-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.label-row label {
+    margin-bottom: 0;
+}
+
+.field-help-wrap {
+    display: inline-flex;
+}
+
+.field-help {
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: 1px solid var(--text-secondary-color);
+    border-radius: 50%;
+    background-color: transparent;
+    color: var(--text-secondary-color);
+    font-family: var(--font-family);
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1;
+    cursor: help;
+    transition: all var(--transition-speed) ease;
+}
+
+.field-help:hover,
+.field-help:focus {
+    background-color: var(--text-secondary-color);
+    color: var(--card-color);
+    outline: none;
+}
+
+/* フィールドと同じ幅に収める。狭い画面でも横スクロールを出さないため */
+.field-tooltip {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 0;
+    right: 0;
+    z-index: 20;
+    padding: 10px 12px;
+    background-color: var(--text-color);
+    color: var(--card-color);
+    border-radius: 8px;
+    box-shadow: var(--card-shadow);
+    font-size: 0.75rem;
+    font-weight: 400;
+    line-height: 1.7;
+    text-align: left;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity var(--transition-speed) ease, visibility var(--transition-speed) ease;
+}
+
+.field-help:hover + .field-tooltip,
+.field-help:focus + .field-tooltip {
+    opacity: 1;
+    visibility: visible;
+}
+
 /* --- Custom Search Select --- */
 .custom-select-container {
     position: relative;
