@@ -10,7 +10,7 @@ from flask import current_app
 
 
 class SerperAPIError(Exception):
-    """致命的なSerper APIエラー (401/402等)"""
+    """致命的なSerper APIエラー (401/402/クレジット切れの400等)"""
     pass
 
 
@@ -70,7 +70,10 @@ class InstagramSearchService:
 
                 if response.status_code == 401:
                     raise SerperAPIError('Serper APIキーが無効です。.envのSERPER_API_KEYを確認してください。')
-                if response.status_code == 402:
+                # クレジット切れは実際には 400 {"message":"Not enough credits"} で返る（2026-10-19確認）
+                if response.status_code == 402 or (
+                    response.status_code == 400 and 'not enough credits' in response.text.lower()
+                ):
                     raise SerperAPIError('Serper APIのクレジットが不足しています。https://serper.dev/ で確認してください。')
 
                 if response.status_code == 429:

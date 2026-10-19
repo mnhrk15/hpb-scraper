@@ -100,7 +100,7 @@ Runs automatically as a continuation of scraping, after detail fetching. Turns t
 - Uses Serper.dev Google Search API (`SERPER_API_KEY` in `.env`); the button is hidden when the key is unset (`/api/instagram-search-available`)
 - Reads salon names from target list Excel file (stateless design); searched sequentially, results mapped back by **row index** to handle duplicate salon names
 - Searches `{サロン名} Instagram (オーナー OR 店長 OR 代表)` (`gl=jp`, `hl=ja`) and filters `organic` results for instagram.com URLs (up to `INSTAGRAM_MAX_URLS`, default 3, per salon). The decision-maker keywords (`DECISION_MAKER_KEYWORDS` class constant) bias results toward owner/manager personal accounts; when Google finds none, results naturally fall back to salon official accounts (no result filtering)
-- Error handling in `_search_instagram()`: 429 → exponential backoff (1/2/4/8/16s, max 5 retries, doesn't consume `RETRY_COUNT`); 401/402 raise `SerperAPIError` which aborts the whole job with an error event
+- Error handling in `_search_instagram()`: 429 → exponential backoff (1/2/4/8/16s, max 5 retries, doesn't consume `RETRY_COUNT`); 401/402 raise `SerperAPIError` which aborts the whole job with an error event. Credit exhaustion actually arrives as **400 `{"message":"Not enough credits"}`** (not 402, confirmed 2026-10-19), so that 400 is treated the same; other 400s are retried and yield empty results. Before this was handled, an out-of-credit run silently retried every salon and ended with an all-empty file after ~25 min for 445 salons
 - Results exported to separate Excel `Instagram_{area}_{timestamp}.xlsx` (area name regex-parsed from the source filename); IG URL columns are inserted right after `サロン名`
 - Reuses existing cancellation mechanism (signal file-based)
 

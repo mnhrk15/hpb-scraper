@@ -164,6 +164,43 @@ class TestSearchInstagram:
             with pytest.raises(SerperAPIError, match='クレジットが不足'):
                 service._search_instagram('サロンA', 'test-job-id')
 
+    def test_credit_exhausted_400_raises(self, app_context):
+        """400 "Not enough credits"（実際のクレジット切れ応答）でもSerperAPIErrorを発生させ、リトライしない。"""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 400
+        mock_resp.text = '{"message":"Not enough credits","statusCode":400}'
+
+        with patch.object(InstagramSearchService, '__init__', lambda self: None):
+            service = InstagramSearchService()
+            service.config = app_context.config
+            service.session = MagicMock()
+            service.session.post.return_value = mock_resp
+            service.instance_path = app_context.instance_path
+            service.logger = app_context.logger
+            service.max_urls = 3
+
+            with pytest.raises(SerperAPIError, match='クレジットが不足'):
+                service._search_instagram('サロンA', 'test-job-id')
+            assert service.session.post.call_count == 1
+
+    @patch('app.main.services.instagram_service.time.sleep')
+    def test_other_400_is_not_fatal(self, mock_sleep, app_context):
+        """クレジット切れ以外の400は従来どおりリトライ後に空リストを返す（ジョブは止めない）。"""
+        mock_resp = _make_serper_response([], status_code=400)
+        mock_resp.text = '{"message":"Invalid query","statusCode":400}'
+
+        with patch.object(InstagramSearchService, '__init__', lambda self: None):
+            service = InstagramSearchService()
+            service.config = app_context.config
+            service.session = MagicMock()
+            service.session.post.return_value = mock_resp
+            service.instance_path = app_context.instance_path
+            service.logger = app_context.logger
+            service.max_urls = 3
+
+            assert service._search_instagram('サロンA', 'test-job-id') == []
+            assert service.session.post.call_count == app_context.config['RETRY_COUNT']
+
     @patch('app.main.services.instagram_service.time.sleep')
     def test_rate_limit_retry(self, mock_sleep, app_context):
         """429エラー時に指数バックオフでリトライし、成功する。"""
